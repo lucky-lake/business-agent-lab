@@ -8,5 +8,3 @@ I don't *know*.
 - another
 
 [a link](https://github.com)
-
-t~1
