@@ -1,0 +1,723 @@
+<title>드립 AR 바리스타</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --ground: #110D0A;
+    --ink: #F2E9DD;
+    --ink-2: #B9AA98;
+    --line: rgba(242, 233, 221, .16);
+    --ar: #6FE7FF;
+    --clay: #E8957A;
+  }
+  html, body { background: var(--ground); }
+  body {
+    color: var(--ink);
+    font-family: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    padding-inline: 16px;
+    padding-block: 24px 40px;
+  }
+  .wrap { max-width: 1200px; margin-inline: auto; display: grid; gap: 16px; }
+  header { display: grid; gap: 6px; }
+  .eyebrow { margin: 0; font: 500 12px/1.2 "IBM Plex Mono", ui-monospace, monospace; letter-spacing: .08em; color: var(--clay); }
+  h1 { margin: 0; font-family: "Gowun Batang", "Nanum Myeongjo", serif; font-weight: 700; font-size: clamp(26px, 3.4vw, 38px); line-height: 1.15; text-wrap: balance; }
+  .sub { margin: 0; max-width: 62ch; color: var(--ink-2); }
+  .stage { position: relative; width: 100%; max-width: 100%; aspect-ratio: 1200 / 760; border-radius: 14px; overflow: hidden; background: #0C0907; box-shadow: 0 0 0 1px var(--line); }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 22px; }
+  .group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .label { font-size: 12px; color: var(--ink-2); letter-spacing: .04em; }
+  .seg { display: inline-flex; flex-wrap: wrap; padding: 3px; gap: 2px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--line); }
+  button { font: inherit; font-size: 14px; color: var(--ink); background: transparent; border: 0; border-radius: 999px; padding: 6px 14px; cursor: pointer; }
+  button:hover { background: rgba(242, 233, 221, .08); }
+  button:focus-visible { outline: 2px solid var(--ar); outline-offset: 2px; }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--ground); }
+  .btn { box-shadow: inset 0 0 0 1px var(--line); }
+  .toggle { display: inline-flex; align-items: center; gap: 8px; box-shadow: inset 0 0 0 1px var(--line); }
+  .toggle .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-2); }
+  .toggle[aria-pressed="true"] { color: var(--ar); box-shadow: inset 0 0 0 1px rgba(111, 231, 255, .55); }
+  .toggle[aria-pressed="true"] .dot { background: var(--ar); box-shadow: 0 0 8px var(--ar); }
+  .note { margin: 0; font-size: 13px; color: var(--ink-2); }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">PROJECT 1 · 컨셉 목업</p>
+    <h1>드립 AR 바리스타</h1>
+    <p class="sub">현실에 가깝게 그린 드립 장면 위에 Claude 바리스타 코치가 AR로 겹쳐 보여요. 붓기 방식을 바꾸면 커피 베드 균일도와 예상 맛이 달라져요.</p>
+  </header>
+
+  <div class="stage">
+    <canvas id="scene" role="img" aria-label="세라믹 드리퍼에 주전자로 물을 붓는 드립커피 장면. 커피 베드 위에 균일도 격자가 투영되고, 도트 캐릭터 Claude가 옆에서 코칭한다."></canvas>
+  </div>
+
+  <div class="controls">
+    <div class="group">
+      <span class="label">붓기 방식</span>
+      <div class="seg" id="pattern">
+        <button type="button" id="p-spiral" data-p="spiral" aria-pressed="true">나선형</button>
+        <button type="button" id="p-center" data-p="center" aria-pressed="false">중앙 집중</button>
+        <button type="button" id="p-edge" data-p="edge" aria-pressed="false">가장자리</button>
+      </div>
+    </div>
+    <div class="group">
+      <span class="label">속도</span>
+      <div class="seg" id="speed">
+        <button type="button" id="s-1" data-s="1" aria-pressed="false">실제</button>
+        <button type="button" id="s-4" data-s="4" aria-pressed="true">4×</button>
+        <button type="button" id="s-8" data-s="8" aria-pressed="false">8×</button>
+      </div>
+    </div>
+    <div class="group">
+      <button type="button" class="btn" id="play">일시정지</button>
+      <button type="button" class="btn" id="restart">처음부터</button>
+    </div>
+    <button type="button" class="toggle" id="ar" aria-pressed="true"><span class="dot"></span>AR 레이어</button>
+  </div>
+
+  <p class="note">컨셉 목업이라 추출 물리와 숫자는 예시 값이에요. 실제 프로젝트에서는 이 모델을 단계별로 만들고 검증해요.</p>
+</div>
+
+<script>
+(() => {
+  const $ = s => document.querySelector(s);
+  const cv = $('#scene'), ctx = cv.getContext('2d');
+  const W = 1200, H = 760, CX = 630, AR = '#6FE7FF', DOSE = 15, N = 13;
+  const FK = '"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif';
+  const FM = '"IBM Plex Mono",ui-monospace,Menlo,monospace';
+  const POURS = [{ s: 0, e: 10, to: 30 }, { s: 40, e: 62, to: 140 }, { s: 80, e: 102, to: 250 }];
+  const PRESET = { spiral: { ey: 19.8, tds: 1.30 }, center: { ey: 22.6, tds: 1.38 }, edge: { ey: 17.3, tds: 1.12 } };
+  const STEPS = [['뜸', ['bloomPour', 'bloomWait']], ['1차', ['pour1', 'wait1']], ['2차', ['pour2']], ['드로다운', ['drawdown']], ['완성', ['done']]];
+  const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+  const fmt = t => { t = Math.max(0, t); return Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0'); };
+  function rng(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+  const R = rng(42);
+
+  /* ---------- simulation ---------- */
+  const cellUV = [], mask = new Uint8Array(N * N);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const u = -1 + (i + .5) * 2 / N, v = -1 + (j + .5) * 2 / N;
+    cellUV.push([u, v]); mask[j * N + i] = u * u + v * v <= 1.1 ? 1 : 0;
+  }
+  let S, ripples, bubbles, steam, drops;
+  function reset() {
+    S = { t: 0, poured: 0, absorbed: 0, L: 0, dripped: 0, outRate: 0, maxL: 0, cells: new Float32Array(N * N), by: { spiral: 0, center: 0, edge: 0 }, trail: [], done: false };
+    ripples = []; bubbles = []; steam = []; drops = [];
+  }
+  function pourRate(t) { let prev = 0; for (const p of POURS) { if (t >= p.s && t < p.e) return (p.to - prev) / (p.e - p.s); prev = p.to; } return 0; }
+  function pourUV(p, t) {
+    let r, th;
+    if (p === 'spiral') { r = .14 + .6 * (.5 - .5 * Math.cos(t * 2 * Math.PI / 18)); th = t * 2 * Math.PI / 5; }
+    else if (p === 'center') { r = .1 + .05 * Math.sin(t * 1.7); th = t * 2 * Math.PI / 4; }
+    else { r = .9 + .04 * Math.sin(t * 1.3); th = t * 2 * Math.PI / 6; }
+    return [r * Math.cos(th), r * Math.sin(th), r];
+  }
+  const bloomAmt = t => t < 10 ? t / 10 * .6 : t < 45 ? .6 : Math.max(0, .6 - (t - 45) / 40 * .6);
+  function deposit(u, v, r, amt) {
+    const sg = .38, eff = r > .82 ? .45 : 1, w = new Float32Array(N * N); let sum = 0;
+    for (let k = 0; k < N * N; k++) { if (!mask[k]) continue; const du = cellUV[k][0] - u, dv = cellUV[k][1] - v; w[k] = Math.exp(-(du * du + dv * dv) / (2 * sg * sg)); sum += w[k]; }
+    for (let k = 0; k < N * N; k++) if (mask[k]) S.cells[k] += amt * eff * w[k] / sum;
+  }
+  function diffuse(d) {
+    const c = S.cells, n = new Float32Array(c), k = Math.min(1, .25 * d);
+    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+      const id = j * N + i; if (!mask[id]) continue; let s = 0, m = 0;
+      for (const [di, dj] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const a = i + di, b = j + dj; if (a < 0 || b < 0 || a >= N || b >= N) continue;
+        const id2 = b * N + a; if (!mask[id2]) continue; s += c[id2]; m++;
+      }
+      if (m) n[id] = c[id] + (s / m - c[id]) * k;
+    }
+    S.cells = n;
+  }
+  function step(d) {
+    const q = pourRate(S.t);
+    if (q > 0) {
+      const [u, v, r] = pourUV(pattern, S.t), amt = Math.min(q * d, 250 - S.poured);
+      if (amt > 0) {
+        S.poured += amt; S.by[pattern] += amt; let toBed = amt;
+        if (S.absorbed < DOSE * 2) { const a = Math.min(DOSE * 2 - S.absorbed, amt * .6); S.absorbed += a; toBed -= a; }
+        S.L += toBed; deposit(u, v, r, amt);
+      }
+      S.trail.push({ u, v, t: S.t }); if (S.trail.length > 90) S.trail.shift();
+    }
+    let out = 0;
+    if (S.L > 0) { out = Math.min(S.L, (.06 * S.L + .15) * d); S.L -= out; S.dripped += out; }
+    S.outRate = out / d; S.maxL = Math.max(S.maxL, S.L); diffuse(d); S.t += d;
+    if (!S.done && S.t > 102 && S.L < .3) { S.done = true; S.L = 0; S.outRate = 0; }
+  }
+  function stats() {
+    let s = 0, s2 = 0, m = 0, inn = 0, ni = 0, out = 0, no = 0;
+    for (let k = 0; k < N * N; k++) {
+      if (!mask[k]) continue; const x = S.cells[k]; s += x; s2 += x * x; m++;
+      const r = Math.hypot(cellUV[k][0], cellUV[k][1]);
+      if (r < .45) { inn += x; ni++; } else if (r > .7) { out += x; no++; }
+    }
+    const mean = s / m, sd = Math.sqrt(Math.max(0, s2 / m - mean * mean));
+    const uni = mean > 0 ? clamp(1 - sd / mean, 0, 1) : 0, ri = inn / ni, ro = out / no;
+    let zone = '고르게 젖는 중';
+    if (mean > 0) { if (ro < ri * .8) zone = '가장자리가 덜 젖었어요'; else if (ri < ro * .8) zone = '가운데가 덜 젖었어요'; }
+    return { mean, uni, zone };
+  }
+  function estimate() {
+    const tot = S.by.spiral + S.by.center + S.by.edge; let ey = 20, tds = 1.26;
+    if (tot > 0) { ey = 0; tds = 0; for (const p in S.by) { ey += PRESET[p].ey * S.by[p] / tot; tds += PRESET[p].tds * S.by[p] / tot; } }
+    const prog = S.done ? 1 : Math.min(1, S.t / 165), e = 1 - Math.pow(1 - prog, 2);
+    return { ey: lerp(20, ey, e), tds: lerp(1.26, tds, e), unc: 1 - e };
+  }
+  function taste(ey, tds, uni) {
+    const a = [];
+    if (tds < 1.15) a.push('연함'); else if (tds > 1.35) a.push('진함');
+    if (ey < 18) a.push('시큼'); else if (ey > 22) a.push('쓴맛');
+    let txt = a.length ? a.join(' · ') : '밸런스 · 단맛 좋음';
+    if (uni > 0 && uni < .65) txt += ' · 흐릿함';
+    return { txt, good: !a.length && (uni === 0 || uni >= .65) };
+  }
+  function phase(t) {
+    if (S.done) return 'done'; if (t < 10) return 'bloomPour'; if (t < 40) return 'bloomWait';
+    if (t < 62) return 'pour1'; if (t < 80) return 'wait1'; if (t < 102) return 'pour2'; return 'drawdown';
+  }
+  const endEstimate = () => S.L <= .3 ? S.t : S.t + Math.log((S.L + 2.5) / 2.8) / .06;
+  function tipFor() {
+    const b = S.by;
+    if (b.center >= b.edge && b.center > b.spiral * .5) return '다음엔 원을 더 넓게 그려봐요.';
+    if (b.edge > b.spiral * .5) return '다음엔 벽을 피해 안쪽에 부어봐요.';
+    return '다음엔 붓는 위치를 고르게 나눠봐요.';
+  }
+  function coach(ph, st, est) {
+    const P = {
+      spiral: '좋아요! 나선을 그리며 고르게 붓고 있어요.',
+      center: '가운데만 깊게 파이고 있어요. 원을 조금 넓혀볼까요?',
+      edge: '벽에 닿은 물은 가루를 거치지 않고 흘러내려요. 안쪽을 노려봐요.'
+    };
+    if (ph === 'bloomPour') return '뜸 들이기 30 g이에요. 가루 전체가 젖도록 살살 부어주세요.';
+    if (ph === 'bloomWait') return '가스가 빠지면서 거품이 부풀어 오르죠? 0:40까지 기다려요.';
+    if (ph === 'pour1' || ph === 'pour2') return P[pattern];
+    if (ph === 'wait1') return '잠깐 쉬어요. 물 높이가 내려가면 1:20에 2차 붓기예요.';
+    if (ph === 'drawdown') return '이제 물이 다 빠지길 기다리면 돼요. ' + fmt(endEstimate()) + '쯤 끝날 것 같아요.';
+    const t = taste(est.ey, est.tds, st.uni);
+    return t.good ? '완성! 밸런스 좋은 한 잔이에요. 단맛이 잘 살아 있을 거예요.' : '완성… ' + t.txt + ' 쪽일 것 같아요. ' + tipFor();
+  }
+
+  /* ---------- static assets ---------- */
+  function makeTex(base, cols, seed, n) {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 160;
+    const g = c.getContext('2d'), r = rng(seed);
+    if (base) { g.fillStyle = base; g.fillRect(0, 0, 512, 160); }
+    for (let i = 0; i < n; i++) {
+      g.fillStyle = cols[(r() * cols.length) | 0]; g.globalAlpha = .5 + r() * .5;
+      g.beginPath(); g.arc(r() * 512, r() * 160, .6 + r() * 1.8, 0, 7); g.fill();
+    }
+    return c;
+  }
+  const texDry = makeTex('#8A6142', ['#5E3C22', '#A57A55', '#6F4A2C', '#B98C62', '#4A2E19'], 7, 9000);
+  const texWet = makeTex('#3A2213', ['#24130A', '#4E2E18', '#5E391E', '#1A0D06', '#6B4426'], 11, 9000);
+  const texFoam = makeTex(null, ['#C89B6A', '#D9B489', '#A87A4E', '#E3C49C'], 19, 5000);
+
+  function rrPath(c, x, y, w, h, r) {
+    c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r);
+    c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+  }
+
+  const BG = (() => {
+    const c = document.createElement('canvas'); c.width = W * 2; c.height = H * 2;
+    const g = c.getContext('2d'); g.scale(2, 2); const r = rng(3);
+    let gr = g.createLinearGradient(0, 0, 0, 600); gr.addColorStop(0, '#1A1411'); gr.addColorStop(1, '#241A14');
+    g.fillStyle = gr; g.fillRect(0, 0, W, 600);
+    let rg = g.createRadialGradient(330, 40, 10, 330, 40, 720);
+    rg.addColorStop(0, 'rgba(255,196,130,.22)'); rg.addColorStop(.5, 'rgba(255,170,100,.06)'); rg.addColorStop(1, 'rgba(255,170,100,0)');
+    g.fillStyle = rg; g.fillRect(0, 0, W, H);
+    rg = g.createRadialGradient(630, 330, 20, 630, 330, 380);
+    rg.addColorStop(0, 'rgba(255,210,160,.07)'); rg.addColorStop(1, 'rgba(255,210,160,0)');
+    g.fillStyle = rg; g.fillRect(0, 0, W, 600);
+    for (let i = 0; i < 14; i++) {
+      const x = r() * W, y = 40 + r() * 460, rad = 14 + r() * 46, a = .03 + r() * .06;
+      const b = g.createRadialGradient(x, y, 0, x, y, rad);
+      b.addColorStop(0, `rgba(255,${190 + r() * 40 | 0},${120 + r() * 60 | 0},${a})`);
+      b.addColorStop(.8, `rgba(255,200,140,${a * .7})`); b.addColorStop(1, 'rgba(255,200,140,0)');
+      g.fillStyle = b; g.beginPath(); g.arc(x, y, rad, 0, 7); g.fill();
+    }
+    gr = g.createLinearGradient(0, 600, 0, 700); gr.addColorStop(0, '#2A1B11'); gr.addColorStop(1, '#4B301D');
+    g.fillStyle = gr; g.fillRect(0, 600, W, 100);
+    for (let i = 0; i < 70; i++) {
+      const t = i / 70, y0 = 600 + Math.pow(t, 1.3) * 100;
+      g.strokeStyle = r() < .5 ? `rgba(20,10,4,${.18 + r() * .2})` : `rgba(140,95,60,${.06 + r() * .08})`;
+      g.lineWidth = .5 + t * 1.4; g.beginPath();
+      const ph = r() * 6, amp = .4 + t * 2.2, fr = .004 + r() * .006;
+      for (let x = 0; x <= W; x += 20) { const y = y0 + Math.sin(x * fr + ph) * amp; x ? g.lineTo(x, y) : g.moveTo(x, y); }
+      g.stroke();
+    }
+    rg = g.createRadialGradient(380, 650, 5, 380, 650, 300);
+    rg.addColorStop(0, 'rgba(255,200,140,.12)'); rg.addColorStop(1, 'rgba(255,200,140,0)');
+    g.fillStyle = rg; g.fillRect(0, 600, W, 100);
+    g.fillStyle = 'rgba(0,0,0,.35)'; g.fillRect(0, 598, W, 4);
+    gr = g.createLinearGradient(0, 700, 0, H); gr.addColorStop(0, '#24160D'); gr.addColorStop(1, '#120B07');
+    g.fillStyle = gr; g.fillRect(0, 700, W, 60);
+    g.fillStyle = 'rgba(210,160,110,.28)'; g.fillRect(0, 699, W, 1.5);
+    // scale
+    g.save(); g.translate(630, 664); g.scale(1, .1);
+    const sh = g.createRadialGradient(0, 0, 0, 0, 0, 260); sh.addColorStop(0, 'rgba(0,0,0,.65)'); sh.addColorStop(1, 'rgba(0,0,0,0)');
+    g.fillStyle = sh; g.beginPath(); g.arc(0, 0, 260, 0, 7); g.fill(); g.restore();
+    let sg = g.createLinearGradient(0, 606, 0, 628); sg.addColorStop(0, '#2E2E31'); sg.addColorStop(1, '#1D1D1F');
+    g.fillStyle = sg; g.beginPath(); g.moveTo(482, 606); g.lineTo(778, 606); g.lineTo(796, 628); g.lineTo(464, 628); g.closePath(); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,.10)'; g.lineWidth = 1; g.beginPath(); g.moveTo(482, 606.5); g.lineTo(778, 606.5); g.stroke();
+    sg = g.createLinearGradient(0, 628, 0, 660); sg.addColorStop(0, '#18181A'); sg.addColorStop(1, '#0C0C0D');
+    g.fillStyle = sg; rrPath(g, 464, 628, 332, 32, 6); g.fill();
+    g.fillStyle = 'rgba(255,255,255,.07)'; g.fillRect(464, 628, 332, 1);
+    g.fillStyle = '#060706'; g.fillRect(486, 635, 124, 18); g.fillRect(682, 635, 92, 18);
+    g.strokeStyle = 'rgba(255,255,255,.06)'; g.strokeRect(486.5, 635.5, 123, 17); g.strokeRect(682.5, 635.5, 91, 17);
+    for (const bx of [636, 656]) { g.fillStyle = '#232326'; g.beginPath(); g.arc(bx, 644, 5, 0, 7); g.fill(); g.strokeStyle = 'rgba(255,255,255,.1)'; g.stroke(); }
+    return c;
+  })();
+
+  const PAL = { B: '#3A2A22', b: '#24180F', O: '#D97757', E: '#1B110C', P: '#F2A48C', M: '#7A2E1A', A: '#F2E6D2', a: '#D6C3A5', c: '#6B3E1E', K: '#2A140C' };
+  const SPRITE = [
+    '....BBBBBB....', '..BBBBBBBBBB..', '.bbbbbbbbbbbb.', 'OOOOOOOOOOOOOO',
+    'OOOOOOOOOOOOOO', 'OOOEEOOOOEEOOO', 'OOOEEOOOOEEOOO', 'OPPOOOOOOOOPPO',
+    'OOOOOOMMOOOOOO', '.OOOOOOOOOOOO.', '..AAAAAAAAAA..', 'OOAAAAAAAAAAOO',
+    'OOAAAAAcAAAAOO', '..AAAAAAAAAA..', '..AaaaaaaaaA..', '...OO....OO...'
+  ];
+  function buildSprite(rows, px) {
+    const h = rows.length, w = rows[0].length, G = [];
+    for (let y = 0; y < h + 2; y++) { G.push([]); for (let x = 0; x < w + 2; x++) { const r = rows[y - 1], ch = r ? r[x - 1] : undefined; G[y].push(ch && ch !== '.' ? ch : null); } }
+    const out = G.map(r => r.slice());
+    for (let y = 0; y < h + 2; y++) for (let x = 0; x < w + 2; x++) {
+      if (G[y][x]) continue;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { if (G[y + dy] && G[y + dy][x + dx]) { out[y][x] = 'K'; break; } }
+    }
+    const c = document.createElement('canvas'); c.width = (w + 2) * px; c.height = (h + 2) * px;
+    const g = c.getContext('2d');
+    for (let y = 0; y < h + 2; y++) for (let x = 0; x < w + 2; x++) { const ch = out[y][x]; if (!ch) continue; g.fillStyle = PAL[ch]; g.fillRect(x * px, y * px, px, px); }
+    g.globalCompositeOperation = 'source-atop'; g.fillStyle = 'rgba(111,231,255,.13)';
+    for (let y = 0; y < c.height; y += 3) g.fillRect(0, y, c.width, 1);
+    return c;
+  }
+  const SPR = buildSprite(SPRITE, 7);
+  const SPR_B = buildSprite(SPRITE.map((r, i) => i === 5 ? 'OOOOOOOOOOOOOO' : r), 7);
+
+  const SP = new Path2D();
+  SP.moveTo(CX - 90, 452); SP.bezierCurveTo(CX - 101, 480, CX - 106, 545, CX - 94, 590); SP.quadraticCurveTo(CX - 86, 614, CX - 60, 616);
+  SP.lineTo(CX + 60, 616); SP.quadraticCurveTo(CX + 86, 614, CX + 94, 590); SP.bezierCurveTo(CX + 106, 545, CX + 101, 480, CX + 90, 452); SP.closePath();
+  const VG = ctx.createRadialGradient(600, 370, 260, 600, 380, 860);
+  VG.addColorStop(0, 'rgba(0,0,0,0)'); VG.addColorStop(1, 'rgba(0,0,0,.6)');
+
+  /* ---------- helpers ---------- */
+  const liquidTop = () => 614 - clamp(S.dripped / 250, 0, 1.05) * 150;
+  const halfWidthAt = y => y >= 590 ? lerp(94, 60, (y - 590) / 26) : 90 + 13 * Math.sin(Math.PI * clamp((y - 452) / 138, 0, 1));
+  function surface() { const h = clamp(S.L / 90, 0, 1) * 18, rx = 106 + h * 1.2; return { cx: CX, cy: 266 - h, rx, ry: rx * .3 }; }
+  function glow() { ctx.shadowColor = 'rgba(111,231,255,.6)'; ctx.shadowBlur = 8; }
+  function txt(t, x, y, f, c, al) { ctx.font = f; ctx.fillStyle = c; ctx.textAlign = al || 'left'; ctx.fillText(t, x, y); ctx.textAlign = 'left'; }
+  function wrap(text, max) {
+    const words = text.split(' '), lines = []; let cur = '';
+    for (const w of words) { const t = cur ? cur + ' ' + w : w; if (ctx.measureText(t).width <= max) cur = t; else { if (cur) lines.push(cur); cur = w; } }
+    if (cur) lines.push(cur); return lines;
+  }
+  function cer(x0, x1) {
+    const g = ctx.createLinearGradient(x0, 0, x1, 0);
+    g.addColorStop(0, '#FBF8F3'); g.addColorStop(.22, '#F2EDE5'); g.addColorStop(.55, '#E4DCD0'); g.addColorStop(.82, '#CBC1B3'); g.addColorStop(1, '#AFA494');
+    return g;
+  }
+
+  /* ---------- real layer ---------- */
+  function drawLED() {
+    ctx.save(); ctx.font = '500 15px ' + FM; ctx.textAlign = 'right'; ctx.fillStyle = '#FF6B3D';
+    ctx.shadowColor = 'rgba(255,90,40,.85)'; ctx.shadowBlur = 7;
+    ctx.fillText(S.poured.toFixed(1) + ' g', 604, 649); ctx.fillText(fmt(S.t), 768, 649); ctx.restore();
+  }
+  function drawServer() {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.beginPath(); ctx.ellipse(CX, 618, 88, 7, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(255,245,235,.04)'; ctx.fill(SP); ctx.clip(SP);
+    const top = liquidTop();
+    if (S.dripped > .4) {
+      let g = ctx.createLinearGradient(0, top, 0, 616); g.addColorStop(0, '#5E2E11'); g.addColorStop(1, '#1C0B03');
+      ctx.fillStyle = g; ctx.fillRect(CX - 120, top, 240, 620 - top);
+      g = ctx.createLinearGradient(CX - 106, 0, CX + 106, 0);
+      g.addColorStop(0, 'rgba(200,100,35,.6)'); g.addColorStop(.16, 'rgba(150,70,20,.18)'); g.addColorStop(.5, 'rgba(0,0,0,0)');
+      g.addColorStop(.86, 'rgba(150,70,20,.14)'); g.addColorStop(1, 'rgba(200,100,35,.5)');
+      ctx.fillStyle = g; ctx.fillRect(CX - 120, top, 240, 620 - top);
+      const hw = halfWidthAt(top);
+      ctx.fillStyle = '#3F1D0A'; ctx.beginPath(); ctx.ellipse(CX, top, hw, hw * .28, 0, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,215,170,.13)'; ctx.beginPath(); ctx.ellipse(CX - hw * .28, top - hw * .06, hw * .42, hw * .06, 0, 0, 7); ctx.fill();
+    }
+    if (S.outRate > 1.4 && !S.done) {
+      ctx.strokeStyle = 'rgba(78,34,10,.95)'; ctx.lineWidth = clamp(S.outRate * .5, 1, 2.8);
+      ctx.beginPath(); ctx.moveTo(CX, 470); ctx.lineTo(CX, top); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,190,140,.25)'; ctx.lineWidth = .8;
+      ctx.beginPath(); ctx.moveTo(CX - .6, 470); ctx.lineTo(CX - .6, top); ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(70,30,9,.95)';
+    for (const d of drops) { ctx.beginPath(); ctx.ellipse(CX, d.y, 1.7, 2.8, 0, 0, 7); ctx.fill(); }
+    ctx.restore();
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,245,235,.26)'; ctx.lineWidth = 1.6; ctx.stroke(SP);
+    ctx.fillStyle = 'rgba(255,255,255,.16)'; ctx.beginPath(); ctx.moveTo(CX - 80, 478); ctx.quadraticCurveTo(CX - 94, 536, CX - 82, 592);
+    ctx.lineTo(CX - 74, 592); ctx.quadraticCurveTo(CX - 85, 536, CX - 71, 478); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.09)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(CX + 82, 486); ctx.quadraticCurveTo(CX + 92, 536, CX + 84, 584); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1; ctx.font = '400 11px ' + FM; ctx.fillStyle = 'rgba(255,255,255,.4)';
+    for (const [m, y] of [[100, 554], [200, 494]]) { ctx.beginPath(); ctx.moveTo(CX + 52, y); ctx.lineTo(CX + 66, y); ctx.stroke(); ctx.fillText(String(m), CX + 26, y + 4); }
+    ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(255,245,235,.13)'; ctx.lineWidth = 11;
+    ctx.beginPath(); ctx.moveTo(CX + 96, 480); ctx.bezierCurveTo(CX + 152, 474, CX + 158, 562, CX + 98, 574); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.28)'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(CX + 98, 476); ctx.bezierCurveTo(CX + 156, 469, CX + 163, 566, CX + 99, 579); ctx.stroke();
+    ctx.restore();
+  }
+  function drawDripper(s) {
+    ctx.save(); ctx.lineCap = 'round';
+    ctx.strokeStyle = '#E2DACD'; ctx.lineWidth = 17; ctx.beginPath(); ctx.moveTo(CX - 126, 304); ctx.bezierCurveTo(CX - 205, 300, CX - 206, 392, CX - 74, 392); ctx.stroke();
+    ctx.strokeStyle = 'rgba(120,100,80,.18)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(CX - 130, 310); ctx.bezierCurveTo(CX - 196, 310, CX - 196, 384, CX - 80, 386); ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = '#9F9486'; ctx.beginPath(); ctx.ellipse(CX, 454, 100, 28, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = cer(CX - 100, CX + 100); ctx.beginPath(); ctx.ellipse(CX, 446, 100, 28, 0, 0, 7); ctx.fill();
+    const cone = new Path2D();
+    cone.moveTo(CX - 150, 262); cone.lineTo(CX - 46, 430); cone.quadraticCurveTo(CX, 450, CX + 46, 430); cone.lineTo(CX + 150, 262);
+    cone.ellipse(CX, 262, 150, 46, 0, 0, Math.PI); cone.closePath();
+    ctx.fillStyle = cer(CX - 150, CX + 150); ctx.fill(cone);
+    let g = ctx.createLinearGradient(0, 262, 0, 445); g.addColorStop(0, 'rgba(70,50,30,0)'); g.addColorStop(1, 'rgba(70,50,30,.24)');
+    ctx.fillStyle = g; ctx.fill(cone);
+    ctx.fillStyle = 'rgba(255,255,255,.45)'; ctx.beginPath(); ctx.moveTo(CX - 118, 300); ctx.lineTo(CX - 54, 414); ctx.lineTo(CX - 46, 414); ctx.lineTo(CX - 104, 300); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#F4EFE8'; ctx.beginPath(); ctx.ellipse(CX, 262, 150, 46, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(90,70,50,.2)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#D5CCBF'; ctx.beginPath(); ctx.ellipse(CX, 265, 138, 41, 0, 0, 7); ctx.fill();
+
+    // interior (seen through the paper's top edge)
+    ctx.save(); ctx.beginPath(); ctx.ellipse(CX, 250, 134, 40, 0, 0, 7); ctx.clip();
+    g = ctx.createLinearGradient(0, 210, 0, 292); g.addColorStop(0, '#EDE5D8'); g.addColorStop(1, '#B3A48D');
+    ctx.fillStyle = g; ctx.fillRect(CX - 140, 205, 280, 95);
+    ctx.strokeStyle = 'rgba(120,95,65,.13)'; ctx.lineWidth = 1;
+    for (let k = -7; k <= 7; k++) { const xx = k * 19, yy = 250 - 40 * Math.sqrt(Math.max(0, 1 - (xx / 134) ** 2)); ctx.beginPath(); ctx.moveTo(CX + xx, yy + 2); ctx.lineTo(CX + k * 9, 268); ctx.stroke(); }
+    if (S.maxL > .5) {
+      const mh = clamp(S.maxL / 90, 0, 1) * 18 + 4, rx = 106 + mh * 1.2 + 4;
+      ctx.fillStyle = 'rgba(120,80,45,.26)'; ctx.beginPath(); ctx.ellipse(CX, 266 - mh, rx, rx * .3, 0, 0, 7); ctx.fill();
+    }
+    ctx.save(); ctx.beginPath(); ctx.ellipse(CX, 266, 106, 32, 0, 0, 7); ctx.clip();
+    ctx.drawImage(texDry, CX - 110, 232, 220, 70);
+    const wet = clamp(S.absorbed / (DOSE * 2) * 1.4, 0, 1);
+    if (wet > 0) { ctx.globalAlpha = wet; ctx.drawImage(texWet, CX - 110, 232, 220, 70); ctx.globalAlpha = 1; }
+    g = ctx.createLinearGradient(0, 234, 0, 298); g.addColorStop(0, 'rgba(0,0,0,.28)'); g.addColorStop(.5, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(CX - 110, 232, 220, 70);
+    const bl = bloomAmt(S.t);
+    if (bl > 0 && !S.done) {
+      ctx.save(); ctx.translate(CX, 264); ctx.scale(1, .3);
+      g = ctx.createRadialGradient(-10, -20, 5, 0, 0, 100);
+      g.addColorStop(0, `rgba(196,146,96,${bl * .75})`); g.addColorStop(.7, `rgba(150,100,60,${bl * .4})`); g.addColorStop(1, 'rgba(150,100,60,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, 106, 0, 7); ctx.fill(); ctx.restore();
+    }
+    ctx.restore();
+    if (S.L > .3) {
+      ctx.save(); ctx.beginPath(); ctx.ellipse(s.cx, s.cy, s.rx, s.ry, 0, 0, 7); ctx.clip();
+      ctx.fillStyle = 'rgba(46,22,9,.9)'; ctx.fillRect(s.cx - s.rx, s.cy - s.ry, s.rx * 2, s.ry * 2);
+      ctx.globalAlpha = .32; ctx.drawImage(texFoam, s.cx - s.rx, s.cy - s.ry, s.rx * 2, s.ry * 2); ctx.globalAlpha = 1;
+      ctx.strokeStyle = 'rgba(200,150,100,.35)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.ellipse(s.cx, s.cy, s.rx - 2, s.ry - 1, 0, 0, 7); ctx.stroke();
+      for (const r of ripples) {
+        const k = r.age / r.life, rr = 4 + k * 46, x = s.cx + r.u * s.rx * .92, y = s.cy + r.v * s.ry * .92;
+        ctx.strokeStyle = `rgba(255,225,190,${(1 - k) * .35})`; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.ellipse(x, y, rr, rr * .3, 0, 0, 7); ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(255,228,195,.22)'; ctx.beginPath(); ctx.ellipse(s.cx - s.rx * .3, s.cy - s.ry * .45, s.rx * .32, 3.5, 0, 0, 7); ctx.fill();
+      ctx.restore();
+    }
+    for (const b of bubbles) {
+      const k = b.age / b.life, x = s.cx + b.u * s.rx, y = s.cy + b.v * s.ry, r = b.r * (.4 + k * .8);
+      ctx.fillStyle = `rgba(214,172,124,${.65 * (1 - k * k)})`; ctx.beginPath(); ctx.arc(x, y, r, 0, 7); ctx.fill();
+      ctx.fillStyle = `rgba(255,245,230,${.7 * (1 - k)})`; ctx.beginPath(); ctx.arc(x - r * .35, y - r * .35, r * .3, 0, 7); ctx.fill();
+    }
+    ctx.restore();
+
+    // front face of the paper filter above the rim
+    ctx.beginPath(); ctx.ellipse(CX, 250, 134, 40, 0, 0, Math.PI); ctx.ellipse(CX, 265, 138, 41, 0, Math.PI, 0, true); ctx.closePath();
+    ctx.fillStyle = '#F1EADF'; ctx.fill();
+    ctx.strokeStyle = 'rgba(140,115,85,.35)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(CX, 250, 134, 40, 0, 0, 7); ctx.stroke();
+  }
+  function drawStream(tip, ix, iy, tn) {
+    const w = Math.sin(tn * 23) * 1.4, my = tip[1] + (iy - tip[1]) * .4;
+    ctx.save(); ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(200,222,238,.5)'; ctx.lineWidth = 4.2;
+    ctx.beginPath(); ctx.moveTo(tip[0], tip[1] + 2); ctx.quadraticCurveTo(tip[0] - 8 + w, my, ix, iy); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(tip[0] - 1, tip[1] + 3); ctx.quadraticCurveTo(tip[0] - 9 + w, my, ix - 1, iy); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,240,220,.45)'; ctx.beginPath(); ctx.ellipse(ix, iy, 7, 2.2, 0, 0, 7); ctx.fill();
+    ctx.restore();
+  }
+  function drawKettle(tip, a) {
+    const c = Math.cos(a), s = Math.sin(a), T = [-238, -12];
+    const bx = tip[0] - (T[0] * c - T[1] * s), by = tip[1] - (T[0] * s + T[1] * c);
+    ctx.save(); ctx.translate(bx, by); ctx.rotate(a); ctx.lineCap = 'round';
+    ctx.strokeStyle = '#0F0F11'; ctx.lineWidth = 18; ctx.beginPath(); ctx.moveTo(78, -40); ctx.bezierCurveTo(150, -56, 172, 18, 118, 60); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(84, -46); ctx.bezierCurveTo(150, -60, 168, 10, 124, 50); ctx.stroke();
+    const sp = new Path2D(); sp.moveTo(-78, 50); sp.bezierCurveTo(-140, 54, -150, -8, -176, -40); sp.bezierCurveTo(-196, -66, -224, -44, -238, -12);
+    ctx.strokeStyle = '#121214'; ctx.lineWidth = 12; ctx.stroke(sp);
+    ctx.save(); ctx.translate(-1, -4); ctx.strokeStyle = 'rgba(255,255,255,.14)'; ctx.lineWidth = 3; ctx.stroke(sp); ctx.restore();
+    ctx.fillStyle = '#050505'; ctx.beginPath(); ctx.ellipse(-238, -12, 5, 3, .9, 0, 7); ctx.fill();
+    const body = new Path2D('M-86 76 L86 76 Q96 76 93 60 L79 -34 Q72 -62 42 -64 L-42 -64 Q-72 -62 -79 -34 L-93 60 Q-96 76 -86 76 Z');
+    let g = ctx.createLinearGradient(-95, 0, 95, 0);
+    g.addColorStop(0, '#0B0B0C'); g.addColorStop(.22, '#2C2C30'); g.addColorStop(.38, '#141416'); g.addColorStop(.8, '#0D0D0E'); g.addColorStop(1, '#232327');
+    ctx.fillStyle = g; ctx.fill(body);
+    g = ctx.createLinearGradient(0, -64, 0, 76); g.addColorStop(0, 'rgba(255,220,180,.10)'); g.addColorStop(.3, 'rgba(255,220,180,0)');
+    ctx.fillStyle = g; ctx.fill(body);
+    ctx.strokeStyle = 'rgba(255,210,160,.14)'; ctx.lineWidth = 1.2; ctx.stroke(body);
+    ctx.fillStyle = 'rgba(255,255,255,.05)'; ctx.fillRect(-90, 62, 180, 6);
+    ctx.fillStyle = '#1B1B1E'; ctx.beginPath(); ctx.ellipse(0, -64, 44, 10, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.stroke();
+    ctx.fillStyle = '#141416'; ctx.fillRect(-5, -76, 10, 12);
+    g = ctx.createRadialGradient(-4, -84, 1, 0, -80, 14); g.addColorStop(0, '#9B7250'); g.addColorStop(1, '#4E3220');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, -80, 14, 9, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = '#8E8E92'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(30, -66); ctx.lineTo(30, -78); ctx.stroke();
+    ctx.fillStyle = '#ECE7DF'; ctx.beginPath(); ctx.arc(30, -88, 11, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = '#C0392B'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(30, -88); ctx.lineTo(30 + 7 * Math.cos(-.5), -88 + 7 * Math.sin(-.5)); ctx.stroke();
+    ctx.restore();
+    return [bx + (30 * c - (-88) * s), by + (30 * s + (-88) * c)];
+  }
+  function drawSteam() {
+    for (const p of steam) {
+      const a = Math.sin(Math.PI * p.age / p.life) * .07, r = p.r * (1 + p.age / p.life * 1.6);
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+      g.addColorStop(0, `rgba(255,248,240,${a})`); g.addColorStop(1, 'rgba(255,248,240,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fill();
+    }
+  }
+
+  /* ---------- AR layer ---------- */
+  const HC = [[61, 139, 255], [111, 242, 194], [255, 138, 76]];
+  function heat(rel) {
+    const x = clamp((rel - .6) / .8, 0, 1), i = x < .5 ? 0 : 1, t = x < .5 ? x * 2 : (x - .5) * 2, a = HC[i], b = HC[i + 1];
+    return `rgba(${a[0] + (b[0] - a[0]) * t | 0},${a[1] + (b[1] - a[1]) * t | 0},${a[2] + (b[2] - a[2]) * t | 0},.42)`;
+  }
+  function panel(x, y, w, h) {
+    ctx.save(); ctx.fillStyle = 'rgba(6,20,26,.66)'; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(111,231,255,.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + .5, y + .5, w - 1, h - 1);
+    glow(); ctx.strokeStyle = AR; ctx.lineWidth = 2; const c = 10; ctx.beginPath();
+    ctx.moveTo(x, y + c); ctx.lineTo(x, y); ctx.lineTo(x + c, y); ctx.moveTo(x + w - c, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + c);
+    ctx.moveTo(x + w, y + h - c); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w - c, y + h); ctx.moveTo(x + c, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - c);
+    ctx.stroke(); ctx.restore();
+  }
+  function callout(ax, ay, px, py, w, h, side) {
+    ctx.save(); glow(); ctx.strokeStyle = AR; ctx.lineWidth = 1.2;
+    const ex = side === 'right' ? px + w : side === 'left' ? px : px + w / 2, ey = side === 'top' ? py : py + 22;
+    ctx.beginPath(); ctx.moveTo(ax, ay);
+    if (side === 'top') { ctx.lineTo(ex, ey - 14); ctx.lineTo(ex, ey); }
+    else { ctx.lineTo(side === 'right' ? ex + 18 : ex - 18, ey); ctx.lineTo(ex, ey); }
+    ctx.stroke();
+    ctx.beginPath(); ctx.arc(ax, ay, 4.5, 0, 7); ctx.stroke();
+    ctx.fillStyle = AR; ctx.beginPath(); ctx.arc(ax, ay, 2, 0, 7); ctx.fill();
+    ctx.restore(); panel(px, py, w, h);
+  }
+  function drawHeat(s, st) {
+    ctx.save(); ctx.beginPath(); ctx.ellipse(s.cx, s.cy, s.rx, s.ry, 0, 0, 7); ctx.clip();
+    const d = 1 / N;
+    if (st.mean > 0) {
+      for (let k = 0; k < N * N; k++) {
+        if (!mask[k]) continue; const [u, v] = cellUV[k];
+        const x0 = s.cx + (u - d) * s.rx, x1 = s.cx + (u + d) * s.rx, y0 = s.cy + (v - d) * s.ry, y1 = s.cy + (v + d) * s.ry;
+        ctx.fillStyle = heat(S.cells[k] / st.mean); ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+      }
+    }
+    ctx.strokeStyle = 'rgba(111,231,255,.28)'; ctx.lineWidth = .7; ctx.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const u = -1 + i * 2 / N, x = s.cx + u * s.rx, y = s.cy + u * s.ry;
+      ctx.moveTo(x, s.cy - s.ry); ctx.lineTo(x, s.cy + s.ry); ctx.moveTo(s.cx - s.rx, y); ctx.lineTo(s.cx + s.rx, y);
+    }
+    ctx.stroke();
+    ctx.lineWidth = 1.6;
+    for (let i = 1; i < S.trail.length; i++) {
+      const a = S.trail[i - 1], b = S.trail[i], al = clamp(1 - (S.t - b.t) / 7, 0, 1);
+      if (al <= 0 || b.t - a.t > .5) continue;
+      ctx.strokeStyle = `rgba(111,231,255,${al * .85})`; ctx.beginPath();
+      ctx.moveTo(s.cx + a.u * s.rx * .92, s.cy + a.v * s.ry * .92); ctx.lineTo(s.cx + b.u * s.rx * .92, s.cy + b.v * s.ry * .92); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.save(); glow(); ctx.strokeStyle = AR; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.ellipse(s.cx, s.cy, s.rx, s.ry, 0, 0, 7); ctx.stroke(); ctx.restore();
+  }
+  function reticle() {
+    const x0 = 462, y0 = 196, x1 = 798, y1 = 470, c = 22;
+    ctx.save(); glow(); ctx.strokeStyle = 'rgba(111,231,255,.8)'; ctx.lineWidth = 1.5; ctx.beginPath();
+    ctx.moveTo(x0, y0 + c); ctx.lineTo(x0, y0); ctx.lineTo(x0 + c, y0); ctx.moveTo(x1 - c, y0); ctx.lineTo(x1, y0); ctx.lineTo(x1, y0 + c);
+    ctx.moveTo(x1, y1 - c); ctx.lineTo(x1, y1); ctx.lineTo(x1 - c, y1); ctx.moveTo(x0 + c, y1); ctx.lineTo(x0, y1); ctx.lineTo(x0, y1 - c);
+    ctx.stroke(); ctx.restore();
+  }
+  function drawClaude(tn, st, est) {
+    const cx = 228, gy = 652;
+    ctx.save();
+    const bg = ctx.createLinearGradient(0, gy, 0, gy - 170); bg.addColorStop(0, 'rgba(111,231,255,.16)'); bg.addColorStop(1, 'rgba(111,231,255,0)');
+    ctx.fillStyle = bg; ctx.beginPath(); ctx.moveTo(cx - 66, gy); ctx.lineTo(cx - 44, gy - 170); ctx.lineTo(cx + 44, gy - 170); ctx.lineTo(cx + 66, gy); ctx.closePath(); ctx.fill();
+    ctx.save(); ctx.translate(cx, gy); ctx.scale(1, .22);
+    const rg = ctx.createRadialGradient(0, 0, 0, 0, 0, 70); rg.addColorStop(0, 'rgba(111,231,255,.28)'); rg.addColorStop(1, 'rgba(111,231,255,0)');
+    ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(0, 0, 70, 0, 7); ctx.fill(); ctx.restore();
+    glow(); ctx.strokeStyle = AR; ctx.lineWidth = 1.5; ctx.setLineDash([10, 7]); ctx.lineDashOffset = RM ? 0 : -tn * 24;
+    ctx.beginPath(); ctx.ellipse(cx, gy, 70, 15, 0, 0, 7); ctx.stroke(); ctx.setLineDash([]);
+    ctx.globalAlpha = .5; ctx.beginPath(); ctx.ellipse(cx, gy, 50, 10.5, 0, 0, 7); ctx.stroke();
+    ctx.restore();
+    const good = S.done && taste(est.ey, est.tds, st.uni).good;
+    let bob = RM ? 0 : Math.sin(tn * 2.4) * 4;
+    if (good && !RM) bob -= Math.abs(Math.sin(tn * 5)) * 16;
+    const img = (tn % 3.4) < .13 ? SPR_B : SPR, x = Math.round(cx - img.width / 2), y = Math.round(gy - img.height - 14 + bob);
+    ctx.save(); ctx.imageSmoothingEnabled = false; ctx.shadowColor = 'rgba(111,231,255,.45)'; ctx.shadowBlur = 18;
+    ctx.globalAlpha = RM ? .96 : .94 + Math.sin(tn * 37) * .03; ctx.drawImage(img, x, y); ctx.restore();
+    return { x: cx, y };
+  }
+  const bub = { key: null, at: -1e3 };
+  function drawBubble(tn, st, est, head) {
+    const ph = phase(S.t), key = ph + '|' + ((ph === 'pour1' || ph === 'pour2' || ph === 'done') ? pattern : '');
+    if (bub.key === null) bub.key = key; else if (key !== bub.key) { bub.key = key; bub.at = tn; }
+    ctx.font = '400 17px ' + FK;
+    const lines = wrap(coach(ph, st, est), 350), w = 392, h = 50 + lines.length * 26, x = 36, y = 478 - h;
+    panel(x, y, w, h);
+    ctx.save(); ctx.fillStyle = 'rgba(6,20,26,.66)'; ctx.beginPath(); ctx.moveTo(head.x - 14, y + h); ctx.lineTo(head.x + 14, y + h); ctx.lineTo(head.x, y + h + 16); ctx.closePath(); ctx.fill();
+    glow(); ctx.strokeStyle = AR; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(head.x - 14, y + h); ctx.lineTo(head.x, y + h + 16); ctx.lineTo(head.x + 14, y + h); ctx.stroke(); ctx.restore();
+    txt('Claude · 바리스타 코치', x + 18, y + 26, '500 12px ' + FK, '#F3A487');
+    let n = Math.floor((tn - bub.at) * 30), ly = y + 54, cx2 = x + 18, cy2 = ly;
+    ctx.font = '400 17px ' + FK; ctx.fillStyle = '#EAF9FF';
+    for (const l of lines) { if (n <= 0) break; const part = l.slice(0, n); ctx.fillText(part, x + 18, ly); cx2 = x + 18 + ctx.measureText(part).width; cy2 = ly; n -= l.length; ly += 26; }
+    if (n <= 0 && ((tn * 2) | 0) % 2 === 0) { ctx.fillStyle = AR; ctx.fillRect(cx2 + 3, cy2 - 14, 7, 16); }
+  }
+  function phaseHUD(tn) {
+    const x = 28, y = 28, w = 330, h = 148; panel(x, y, w, h);
+    txt('추출 진행', x + 18, y + 24, '500 12px ' + FK, 'rgba(160,240,255,.9)');
+    ctx.font = '400 12px ' + FK; const lw = ctx.measureText('AR 코치 연결됨').width;
+    txt('AR 코치 연결됨', x + w - 18, y + 24, '400 12px ' + FK, 'rgba(210,245,255,.75)', 'right');
+    ctx.save(); ctx.globalAlpha = RM ? 1 : .55 + .45 * Math.sin(tn * 4); ctx.fillStyle = AR; ctx.beginPath(); ctx.arc(x + w - 18 - lw - 10, y + 20, 3.5, 0, 7); ctx.fill(); ctx.restore();
+    const ts = fmt(S.t); txt(ts, x + 18, y + 62, '500 32px ' + FM, '#EFFFFF');
+    ctx.font = '500 32px ' + FM; const tw = ctx.measureText(ts).width;
+    txt('목표 2:30 – 3:00', x + 30 + tw, y + 62, '400 12px ' + FK, 'rgba(210,245,255,.6)');
+    const idx = STEPS.findIndex(st => st[1].includes(phase(S.t)));
+    let cx = x + 18; const cy = y + 78; ctx.font = '500 12px ' + FK;
+    STEPS.forEach((st, i) => {
+      const cw = ctx.measureText(st[0]).width + 18; rrPath(ctx, cx, cy, cw, 22, 11);
+      if (i === idx) { ctx.fillStyle = AR; ctx.fill(); ctx.fillStyle = '#062129'; }
+      else if (i < idx) { ctx.strokeStyle = 'rgba(111,231,255,.7)'; ctx.lineWidth = 1; ctx.stroke(); ctx.fillStyle = 'rgba(160,240,255,.9)'; }
+      else { ctx.strokeStyle = 'rgba(255,255,255,.18)'; ctx.lineWidth = 1; ctx.stroke(); ctx.fillStyle = 'rgba(255,255,255,.45)'; }
+      ctx.fillText(st[0], cx + 9, cy + 15.5); cx += cw + 6;
+    });
+    txt('부은 물 ' + Math.round(S.poured) + ' / 250 g', x + 18, y + 124, '400 12px ' + FK, 'rgba(210,245,255,.75)');
+    txt('서버 ' + Math.round(S.dripped) + ' g', x + w - 18, y + 124, '400 12px ' + FK, 'rgba(210,245,255,.75)', 'right');
+    ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(x + 18, y + 134, w - 36, 3);
+    ctx.fillStyle = AR; ctx.fillRect(x + 18, y + 134, (w - 36) * S.poured / 250, 3);
+  }
+  function bedCallout(s, st) {
+    const px = 262, py = 196, w = 180, h = 98; callout(s.cx - s.rx + 6, s.cy, px, py, w, h, 'right');
+    txt('커피 베드 균일도', px + 16, py + 22, '500 12px ' + FK, 'rgba(160,240,255,.9)');
+    txt(st.mean > 0 ? Math.round(st.uni * 100) + '%' : '—', px + 16, py + 52, '500 26px ' + FM, '#EFFFFF');
+    txt(st.mean > 0 ? st.zone : '아직 물이 닿지 않았어요', px + 16, py + 71, '400 12px ' + FK, 'rgba(210,245,255,.78)');
+    let x = px + 16; ctx.font = '400 11px ' + FK;
+    for (const [l, c] of [['덜 젖음', '#3D8BFF'], ['적정', '#6FF2C2'], ['과다', '#FF8A4C']]) {
+      ctx.fillStyle = c; ctx.fillRect(x, py + 80, 8, 8); ctx.fillStyle = 'rgba(210,245,255,.7)'; ctx.fillText(l, x + 12, py + 88);
+      x += 24 + ctx.measureText(l).width;
+    }
+  }
+  function kettleCallout(th) {
+    const px = 1000, py = 236, w = 170, h = 84; callout(th[0], th[1], px, py, w, h, 'top');
+    const q = pourRate(S.t), pouring = q > 0 && !S.done;
+    txt('물 온도', px + 16, py + 22, '500 12px ' + FK, 'rgba(160,240,255,.9)');
+    txt('93°C', px + 16, py + 52, '500 26px ' + FM, '#EFFFFF');
+    txt(pouring ? '붓는 속도 ' + q.toFixed(1) + ' g/s' : '주전자 대기 중', px + 16, py + 71, '400 12px ' + FK, 'rgba(210,245,255,.78)');
+  }
+  function serverCallout() {
+    const px = 790, py = 672, w = 176, h = 62; callout(CX + 100, 560, px, py, w, h, 'left');
+    txt('서버로 떨어지는 속도', px + 16, py + 22, '500 12px ' + FK, 'rgba(160,240,255,.9)');
+    txt((S.done ? 0 : S.outRate).toFixed(1) + ' g/s', px + 16, py + 50, '500 22px ' + FM, '#EFFFFF');
+  }
+  function chartHUD(est, st) {
+    const x = 904, y = 412, w = 268, h = 240; panel(x, y, w, h);
+    txt('예상 한 잔', x + 18, y + 24, '500 12px ' + FK, 'rgba(160,240,255,.9)');
+    const X0 = 946, X1 = 1150, Y0 = 452, Y1 = 566, ex = v => X0 + (v - 16) / 8 * (X1 - X0), ty = v => Y1 - (v - 1) / .6 * (Y1 - Y0);
+    ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = 1; ctx.beginPath();
+    for (const v of [18, 20, 22]) { ctx.moveTo(ex(v), Y0); ctx.lineTo(ex(v), Y1); }
+    for (const v of [1.2, 1.4]) { ctx.moveTo(X0, ty(v)); ctx.lineTo(X1, ty(v)); }
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(111,231,255,.35)'; ctx.strokeRect(X0, Y0, X1 - X0, Y1 - Y0);
+    ctx.fillStyle = 'rgba(111,242,194,.12)'; ctx.fillRect(ex(18), ty(1.35), ex(22) - ex(18), ty(1.15) - ty(1.35));
+    ctx.strokeStyle = 'rgba(111,242,194,.6)'; ctx.strokeRect(ex(18), ty(1.35), ex(22) - ex(18), ty(1.15) - ty(1.35));
+    const zc = 'rgba(210,245,255,.38)', zf = '400 11px ' + FK;
+    txt('시큼', X0 + 6, (Y0 + Y1) / 2 + 4, zf, zc); txt('쓴맛', X1 - 6, (Y0 + Y1) / 2 + 4, zf, zc, 'right');
+    txt('진함', (X0 + X1) / 2, Y0 + 14, zf, zc, 'center'); txt('연함', (X0 + X1) / 2, Y1 - 6, zf, zc, 'center');
+    const ac = 'rgba(210,245,255,.6)';
+    txt('1.6', X0 - 6, Y0 + 8, zf, ac, 'right'); txt('1.0', X0 - 6, Y1, zf, ac, 'right');
+    txt('16', X0, Y1 + 15, zf, ac); txt('24', X1, Y1 + 15, zf, ac, 'right'); txt('추출수율 EY %', (X0 + X1) / 2, Y1 + 15, zf, ac, 'center');
+    ctx.save(); ctx.translate(X0 - 28, (Y0 + Y1) / 2); ctx.rotate(-Math.PI / 2); txt('농도 TDS %', 0, 0, zf, ac, 'center'); ctx.restore();
+    const px = ex(clamp(est.ey, 16, 24)), py = ty(clamp(est.tds, 1, 1.6)), t = taste(est.ey, est.tds, st.uni), col = t.good ? '#6FF2C2' : '#FFB36B';
+    ctx.save(); glow(); ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(111,231,255,.7)'; ctx.beginPath(); ctx.arc(px, py, 5 + est.unc * 24, 0, 7); ctx.stroke();
+    ctx.setLineDash([]); ctx.fillStyle = col; ctx.beginPath(); ctx.arc(px, py, 5, 0, 7); ctx.fill(); ctx.restore();
+    txt('EY ' + est.ey.toFixed(1) + '%   TDS ' + est.tds.toFixed(2) + '%', x + 18, y + h - 40, '500 13px ' + FM, '#EFFFFF');
+    txt((S.done ? '' : '예상 · ') + t.txt, x + 18, y + h - 16, '500 14px ' + FK, col);
+  }
+  function drawAR(tn, s, st, est, th) {
+    drawHeat(s, st); reticle();
+    const head = drawClaude(tn, st, est); drawBubble(tn, st, est, head);
+    phaseHUD(tn); bedCallout(s, st); kettleCallout(th); serverCallout(); chartHUD(est, st);
+  }
+
+  /* ---------- loop ---------- */
+  let pattern = 'spiral', speed = 4, playing = !RM, arOn = true, kp = 1, last = performance.now();
+  let ripT = 0, bubT = 0, stT = 0, dropT = 0, restartAt = 0;
+  function update(dt) {
+    const pouring = pourRate(S.t) > 0 && !S.done;
+    if (pouring) { ripT += dt; while (ripT > .09) { ripT -= .09; const [u, v] = pourUV(pattern, S.t); ripples.push({ u, v, age: 0, life: .9 }); } }
+    const bw = S.t > 2 && S.t < 50 ? (S.t < 40 ? 1 : (50 - S.t) / 10) : 0;
+    bubT += dt * 24 * bw;
+    while (bubT > 1) { bubT--; const r = .82 * Math.sqrt(R()), th = R() * 6.283; bubbles.push({ u: r * Math.cos(th), v: r * Math.sin(th), r: 1.2 + R() * 2.8, age: 0, life: .5 + R() }); }
+    if (S.t > 3) {
+      stT += dt * 12;
+      while (stT > 1) {
+        stT--; const fs = R() < .25;
+        steam.push({ x: fs ? CX + (R() < .5 ? -1 : 1) * (80 + R() * 20) : CX + (R() - .5) * 220, y: fs ? 470 : 236 + R() * 24, vx: (R() - .5) * 8, vy: -(14 + R() * 16), r: 8 + R() * 12, age: 0, life: 2.6 + R() * 2, ph: R() * 6 });
+      }
+    }
+    if (S.outRate > .05 && S.outRate <= 1.4 && !S.done) { dropT += dt * clamp(S.outRate * speed * 1.2, 0, 14); while (dropT > 1) { dropT--; drops.push({ y: 476, v: 30 }); } }
+    for (const a of ripples) a.age += dt; ripples = ripples.filter(a => a.age < a.life);
+    for (const a of bubbles) a.age += dt; bubbles = bubbles.filter(a => a.age < a.life);
+    for (const p of steam) { p.age += dt; p.x += p.vx * dt + Math.sin(p.age * 1.6 + p.ph) * .35; p.y += p.vy * dt; }
+    steam = steam.filter(p => p.age < p.life);
+    const top = liquidTop(); for (const p of drops) { p.v += 900 * dt; p.y += p.v * dt; } drops = drops.filter(p => p.y < top);
+    const soon = !S.done && POURS.some(p => S.t >= p.s - 2.5 && S.t < p.e);
+    kp += ((soon ? 1 : 0) - kp) * Math.min(1, dt * 4);
+  }
+  function draw(tn) {
+    ctx.setTransform(cv.width / W, 0, 0, cv.height / H, 0, 0);
+    ctx.drawImage(BG, 0, 0, W, H); drawLED();
+    const s = surface(), st = stats(), est = estimate();
+    drawServer(); drawDripper(s);
+    const [u, v] = pourUV(pattern, S.t), ix = s.cx + u * s.rx * .92, iy = s.cy + v * s.ry * .92;
+    const tip = [lerp(812, ix + 22, kp), lerp(150, 186, kp)], ang = lerp(-.12, -.38, kp);
+    if (pourRate(S.t) > 0 && !S.done && kp > .85) drawStream(tip, ix, iy, tn);
+    const th = drawKettle(tip, ang);
+    drawSteam();
+    ctx.fillStyle = VG; ctx.fillRect(0, 0, W, H);
+    if (arOn) drawAR(tn, s, st, est, th);
+  }
+  function frame(now) {
+    const dt = Math.min(.05, (now - last) / 1000), tn = now / 1000; last = now;
+    if (playing) {
+      let sd = dt * speed; while (sd > 1e-6 && !S.done) { const d = Math.min(.1, sd); step(d); sd -= d; }
+      update(dt);
+      if (S.done) { if (!restartAt) restartAt = tn + 7; else if (tn > restartAt) { reset(); restartAt = 0; } }
+    }
+    draw(tn); requestAnimationFrame(frame);
+  }
+  function fit() {
+    const r = cv.getBoundingClientRect(), d = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = Math.max(1, Math.round(r.width * d)); cv.height = Math.max(1, Math.round(r.height * d));
+  }
+
+  /* ---------- controls ---------- */
+  function setPressed(sel, b) { document.querySelectorAll(sel + ' button').forEach(x => x.setAttribute('aria-pressed', x === b ? 'true' : 'false')); }
+  document.querySelectorAll('#pattern button').forEach(b => b.addEventListener('click', () => { pattern = b.dataset.p; setPressed('#pattern', b); }));
+  document.querySelectorAll('#speed button').forEach(b => b.addEventListener('click', () => { speed = +b.dataset.s; setPressed('#speed', b); }));
+  const playBtn = $('#play');
+  playBtn.textContent = playing ? '일시정지' : '재생';
+  playBtn.addEventListener('click', () => { playing = !playing; playBtn.textContent = playing ? '일시정지' : '재생'; });
+  $('#restart').addEventListener('click', () => { reset(); restartAt = 0; kp = 0; playing = true; playBtn.textContent = '일시정지'; });
+  $('#ar').addEventListener('click', e => { arOn = !arOn; e.currentTarget.setAttribute('aria-pressed', String(arOn)); });
+
+  reset();
+  for (let i = 0; i < 500; i++) step(.1);   // open mid-brew so the first frame shows the pour in progress
+  new ResizeObserver(fit).observe(cv); fit();
+  draw(performance.now() / 1000);
+  requestAnimationFrame(frame);
+})();
+</script>
