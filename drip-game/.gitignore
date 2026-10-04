@@ -1,0 +1,38 @@
+# Secrets / credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Dependencies
+node_modules/
+.venv/
+venv/
+env/
+
+# Build output / caches
+dist/
+build/
+out/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Large raw data (keep small samples elsewhere, e.g. data/sample/)
+data/raw/
+
+# Video files (submitted to LMS, not GitHub)
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
