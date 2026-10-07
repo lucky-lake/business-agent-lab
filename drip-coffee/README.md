@@ -1,6 +1,8 @@
-# Drip AR Barista
+# Drip Coffee: 핸드드립 추출 분석·추천 도구
 
-<!-- 한 줄 소개. 배포했다면 링크도 여기에. README 전체는 1,200단어 이하. -->
+원두 가루 사진으로 분쇄도를 마이크론 단위로 재고, 문헌 기반 추출 모델로 농도와 추출수율을 예측해 새 원두에 맞는 레시피를 추천하는 도구입니다. (작성 중)
+
+<!-- README 전체는 1,200단어 이하. -->
 
 - **Deployed URL:** (if applicable)
 - **Course:** Business Agent Design, Fall 2026 — Project 1
