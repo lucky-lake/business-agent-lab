@@ -25,6 +25,7 @@ Business Agent Design (Fall 2026) Project 1 개인 과제. 마감 2026-11-01 23:
 - 계산 모듈은 화면과 분리된 순수 함수로 짜고 pytest로 검증한다. 핵심 로직은 5개 파일(분쇄 분석, 추출 모델, 보정, 추천, 앱 화면)에만 둔다.
 - 저장소 경로에 한글이 있어 `cv2.imread`/`cv2.imwrite`가 실패할 수 있다. 이미지 입출력은 바이트 기반으로 한다(`np.fromfile` + `cv2.imdecode`, `cv2.imencode` + `tofile`).
 - 앱이 쓰는 작업 데이터는 `data/local/`(커밋 안 함)에 둔다.
+- 실행(이 폴더에서): `python -m venv .venv` → `.venv\Scripts\python -m pip install -r requirements.txt` → `.venv\Scripts\streamlit run app.py`. 테스트는 `.venv\Scripts\python -m pytest`.
 
 ## 작업 방식
 
@@ -32,7 +33,7 @@ Business Agent Design (Fall 2026) Project 1 개인 과제. 마감 2026-11-01 23:
 - 커밋 하나에 의미 있는 변경 하나. 메시지는 한국어로, 제목은 무엇을 바꿨는지, 본문은 왜·무엇·확인.
 - 커밋마다 바뀐 파일과 메시지를 보여주고 사용자 확인을 받은 뒤 커밋·푸시한다.
 - 이미 푸시한 커밋은 고치지 않는다(amend, force push 금지). 잘못은 fix 커밋으로 바로잡는다. 날짜 조작, 빈 커밋, 개수 채우기용 커밋은 만들지 않는다.
-- `docs/PLAN.md`는 살아있는 계획이다. 범위나 일정이 실제로 바뀔 때만 이유를 적은 단독 커밋으로 고친다.
+- 범위나 일정을 바꾸면 그 이유를 WORKLOG에 남긴다.
 - 결정, 문제, 대응은 `docs/WORKLOG.md`에 관련 커밋과 함께 남긴다. 지난 일을 나중에 적으면 작성 날짜를 표시한다.
 - 핵심 함수는 짧은 설명을 함께 주고, 사용자가 이해한 뒤 커밋한다.
 

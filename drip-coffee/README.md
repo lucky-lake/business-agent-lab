@@ -13,7 +13,16 @@
 
 ## How to Run
 
-<!-- 설치/실행 명령어를 그대로 복사해서 쓸 수 있게. 필요한 버전(Python 등)도 명시. -->
+Python 3.12 기준, `drip-coffee/` 폴더에서 실행합니다.
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+테스트: `python -m pytest`
 
 ## Work Process
 

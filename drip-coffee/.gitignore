@@ -24,6 +24,11 @@ __pycache__/
 # Large raw data (keep small samples elsewhere, e.g. data/sample/)
 data/raw/
 
+# App working data and evidence candidates (not committed)
+data/local/
+docs/evidence/_candidates/
+.streamlit/secrets.toml
+
 # Video files (submitted to LMS, not GitHub)
 *.mp4
 *.mov
