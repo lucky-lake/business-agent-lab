@@ -118,10 +118,13 @@ CHAFF_BGR = (110, 160, 200)  # 연한 황갈색 은피
 
 def make_particle_polygon(center, diameter, rng, n_vertices=None):
     """면적이 지름 diameter인 원과 같은 불규칙한 다각형을 만든다 (단위는 호출한 쪽과 같음).
-    원두 입자처럼 모서리가 있는 모양을 흉내 낸다."""
+    원두 조각처럼 모서리가 있는 모양을 흉내 낸다.
+
+    꼭짓점 각도를 고르게 나눈 뒤 조금씩 흔든다. 각도를 완전히 무작위로 뽑으면
+    가끔 별처럼 깊게 오목한 모양이 생기는데, 실제 원두 조각과 달라서 쓰지 않는다."""
     n = n_vertices or int(rng.integers(7, 12))
-    angles = np.sort(rng.uniform(0, 2 * np.pi, n))
-    radii = 1.0 + rng.uniform(-0.25, 0.25, n)
+    angles = (np.arange(n) + rng.uniform(-0.3, 0.3, n)) * 2 * np.pi / n
+    radii = 1.0 + rng.uniform(-0.2, 0.2, n)
     pts = np.stack([radii * np.cos(angles), radii * np.sin(angles)], axis=1)
     area = 0.5 * abs(np.dot(pts[:, 0], np.roll(pts[:, 1], -1)) - np.dot(pts[:, 1], np.roll(pts[:, 0], -1)))
     target = np.pi * (diameter / 2) ** 2

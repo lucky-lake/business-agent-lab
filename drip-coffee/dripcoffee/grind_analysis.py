@@ -5,7 +5,7 @@
 2. 축척 용지의 모서리 마커를 찾고, 네 마커가 모두 보이는 가루 칸을 고른다.
 3. 마커 꼭짓점의 실제 위치(mm)를 이용해 사진을 정면에서 본 모습으로 펴고,
    픽셀 하나가 실제로 몇 µm인지 구한다.
-(입자 검출과 크기 분포 계산은 다음 단계에서 추가한다.)
+4. 펴진 가루 칸에서 입자를 찾아 입자마다 지름(µm)을 재고, 부피 기준 중앙값을 낸다.
 """
 from dataclasses import dataclass
 
@@ -188,3 +188,177 @@ def _fit_homography(markers, zone, ids, px_per_mm):
     corner_error = np.linalg.norm(mapped - dst, axis=1) / px_per_mm
     residual_mm = {m: float(corner_error[4 * k : 4 * k + 4].max()) for k, m in enumerate(ids)}
     return homography, residual_mm
+
+
+# ---------------------------------------------------------------------------
+# 입자 검출과 지름 계산
+# ---------------------------------------------------------------------------
+
+# 이보다 작은(지름, 픽셀) 점은 크기를 믿을 수 없어 측정에서 뺀다.
+# 하한 아래 점을 미분으로 따로 셀지는 아직 정하지 않았다.
+MIN_DIAMETER_PX = 5.0
+
+# 가루 칸 테두리 선과 펴기 오차를 피하려고, 칸 가장자리에서 이만큼(mm)은 보지 않는다.
+# 이 띠에 걸친 입자는 칸 경계에 걸려 잘린 입자로 보고 뺀다.
+BORDER_BAND_MM = 0.5
+
+# 붙은 입자 덩어리를 가려내는 두 기준.
+# - 넓이 ÷ 볼록 껍질 넓이가 이보다 작으면 여러 입자가 엉킨 덩어리로 본다.
+#   실제 사진에서 이 값이 0.85보다 작은 덩어리를 빼자 클릭별 부피 중앙값 비율이 메버릭 클릭표 비율과 비슷해졌다.
+# - 두 입자가 딱 붙은 짝은 넓이 비율이 0.88쯤이라 위 기준에 걸리지 않는다. 대신 붙은 자리가 잘록하게
+#   들어가므로, 가장 깊게 들어간 곳의 깊이가 같은 넓이 원 반지름의 이 비율보다 크면 덩어리로 본다.
+#   합성 입자에서 단일 입자는 0.18 이하였고, 0.35로 두면 붙은 짝의 약 90%를 잡는다.
+#   실제 사진의 단일 입자는 가장자리가 더 거칠어서 0.25로는 너무 많이 뺐다.
+#   메버릭 클릭표는 출처를 확인하지 못해 이 값을 그 표에 맞추지는 않았다.
+MIN_SOLIDITY = 0.85
+MAX_NECK_DEPTH_RATIO = 0.35
+
+# 배경(종이) 밝기를 추정할 때 지우는 가장 큰 입자 크기(mm). 이보다 큰 입자는 배경으로 섞일 수 있다.
+MAX_PARTICLE_MM = 3.0
+
+
+@dataclass
+class ParticleMeasurement:
+    """펴진 가루 칸 하나에서 잰 입자들."""
+
+    diameters_um: np.ndarray  # 입자마다 면적이 같은 원의 지름 (µm)
+    centroids_mm: np.ndarray  # 입자 중심 (가루 칸 왼쪽 위 기준, mm)
+    um_per_px: float
+    d50_volume_um: float  # 부피(질량) 기준 중앙값 지름
+    min_diameter_um: float  # 이보다 작은 점은 재지 않았다 (검출 하한)
+    excluded_chaff: int  # 은피로 보고 뺀 조각 수
+    excluded_border: int  # 칸 경계에 걸려 뺀 입자 수
+    excluded_clumps: int = 0  # 여러 입자가 붙은 덩어리로 보여 뺀 수
+    warnings: tuple = ()
+
+
+def volume_median(diameters):
+    """부피 기준 중앙값. 큰 입자일수록 무게가 크므로 지름의 세제곱으로 가중한다."""
+    d = np.sort(np.asarray(diameters, dtype=float))
+    if d.size == 0:
+        return float("nan")
+    cumulative = np.cumsum(d**3) / np.sum(d**3)
+    return float(np.interp(0.5, cumulative, d))
+
+
+def flatten_lighting(image, px_per_mm):
+    """종이 배경의 밝기를 1로 맞춘 밝기 지도를 만든다 (조명이 고르지 않아도 같게 보이도록).
+
+    입자보다 큰 범위로 '닫기' 연산을 하면 어두운 입자가 지워지고 종이 밝기만 남는다.
+    원래 밝기를 이 배경 밝기로 나누면 종이는 1 근처, 커피 입자는 0.1~0.3 근처가 된다.
+    """
+    gray = image if image.ndim == 2 else cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = gray.astype(np.float32)
+    # 큰 이미지는 줄여서 배경을 추정하고 다시 키운다 (배경은 천천히 변하므로 충분하다).
+    scale = min(1.0, 400.0 / max(gray.shape))
+    small = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    k = max(3, int(MAX_PARTICLE_MM * px_per_mm * scale) | 1)
+    background = cv2.morphologyEx(small, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    background = cv2.GaussianBlur(background, (0, 0), k / 2)
+    background = cv2.resize(background, (gray.shape[1], gray.shape[0]), interpolation=cv2.INTER_LINEAR)
+    return gray / np.maximum(background, 1.0)
+
+
+def measure_particles(image, um_per_px):
+    """펴진 가루 칸 이미지에서 커피 입자를 찾아 지름을 잰다.
+
+    1. 조명을 고르게 맞춘 밝기 지도를 만든다.
+    2. 종이와 커피 입자 밝기의 가운데를 기준으로 입자를 나눈다.
+       경계 픽셀은 반쯤 덮였으므로, 가운데 기준이면 면적이 치우치지 않는다.
+    3. 커피보다 밝고 노란 조각은 은피로 보고 센 뒤 뺀다.
+    4. 칸 가장자리 띠에 걸친 입자는 잘린 입자로 보고 뺀다.
+    5. 오목하게 들어간 곳이 많은 덩어리(붙은 입자)는 큰 입자 하나로 잘못 재지 않도록 뺀다.
+    6. 입자마다 덮인 비율을 더해 면적을 구하고, 같은 면적의 원 지름으로 바꾼다.
+    """
+    px_per_mm = 1000.0 / um_per_px
+    level = flatten_lighting(image, px_per_mm)
+    h, w = level.shape
+    band = max(1, int(round(BORDER_BAND_MM * px_per_mm)))
+    inner = np.zeros((h, w), dtype=bool)
+    inner[band : h - band, band : w - band] = True
+
+    empty = ParticleMeasurement(
+        np.array([]), np.zeros((0, 2)), um_per_px, float("nan"), MIN_DIAMETER_PX * um_per_px, 0, 0, 0,
+        ("가루 칸에서 입자를 찾지 못했어요.",),
+    )
+    dark = level[inner & (level < 0.6)]
+    if dark.size == 0:
+        return empty
+    coffee_level = float(np.percentile(dark, 10))  # 커피 입자 안쪽의 밝기
+    threshold = float(np.clip((1.0 + coffee_level) / 2, 0.45, 0.75))
+    coffee = (level < threshold) & inner
+
+    excluded_chaff = _count_chaff(image, level, coffee, inner, threshold)
+
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(coffee.astype(np.uint8), connectivity=8)
+    coverage = np.clip((1.0 - level) / (1.0 - coffee_level), 0.0, 1.0)
+    diameters, centroids, excluded_border, excluded_clumps = [], [], 0, 0
+    for i in range(1, n):
+        x, y, bw, bh, pixel_count = stats[i]
+        if x <= band or y <= band or x + bw >= w - band or y + bh >= h - band:
+            excluded_border += 1
+            continue
+        if 2.0 * np.sqrt(pixel_count / np.pi) >= MIN_DIAMETER_PX and _is_clump(labels[y : y + bh, x : x + bw] == i):
+            excluded_clumps += 1
+            continue
+        # 경계의 반쯤 덮인 픽셀까지 넣으려고 한 픽셀 넓힌 영역에서 덮인 비율을 더한다.
+        y0, y1, x0, x1 = max(y - 1, 0), min(y + bh + 1, h), max(x - 1, 0), min(x + bw + 1, w)
+        region = cv2.dilate((labels[y0:y1, x0:x1] == i).astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
+        area_px = float(coverage[y0:y1, x0:x1][region].sum())
+        d_px = 2.0 * np.sqrt(area_px / np.pi)
+        if d_px < MIN_DIAMETER_PX:
+            continue
+        ys, xs = np.nonzero(region)
+        weights = coverage[y0:y1, x0:x1][region]
+        cx = (np.sum(xs * weights) / weights.sum() + x0) / px_per_mm
+        cy = (np.sum(ys * weights) / weights.sum() + y0) / px_per_mm
+        diameters.append(d_px * um_per_px)
+        centroids.append((cx, cy))
+
+    if not diameters:
+        return empty
+    d = np.array(diameters)
+    return ParticleMeasurement(
+        d, np.array(centroids), um_per_px, volume_median(d), MIN_DIAMETER_PX * um_per_px,
+        excluded_chaff, excluded_border, excluded_clumps,
+    )
+
+
+def _is_clump(mask):
+    """여러 입자가 붙은 덩어리인지 판단한다 (위 MIN_SOLIDITY, MAX_NECK_DEPTH_RATIO 설명 참고)."""
+    padded = cv2.copyMakeBorder(mask.astype(np.uint8), 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
+    contours, _ = cv2.findContours(padded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contour = max(contours, key=cv2.contourArea)
+    area = float(np.count_nonzero(mask))
+    if area / max(cv2.contourArea(cv2.convexHull(contour)), 1.0) < MIN_SOLIDITY:
+        return True
+    hull_idx = cv2.convexHull(contour, returnPoints=False)
+    if len(hull_idx) <= 3:
+        return False
+    defects = cv2.convexityDefects(contour, hull_idx)
+    if defects is None:
+        return False
+    deepest = defects[:, 0, 3].max() / 256.0  # OpenCV는 깊이를 256배 한 정수로 준다
+    return deepest / np.sqrt(area / np.pi) > MAX_NECK_DEPTH_RATIO
+
+
+def _count_chaff(image, level, coffee, inner, threshold):
+    """은피 조각 수를 센다. 은피는 커피 입자보다 밝고(종이보다는 어둡고) 노란빛이 강하다.
+
+    색은 종이 색과 비교한다. 따뜻한 조명에서는 종이 자체가 노랗게 찍혀서,
+    색의 진하기(채도)만으로 판단하면 종이 결과 입자 그림자를 은피로 잘못 센다(실제 사진에서 확인).
+    """
+    if image.ndim == 2:
+        return 0
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB).astype(np.float32)
+    paper_pixels = inner & (level > 0.95)
+    if not paper_pixels.any():
+        return 0
+    paper = np.median(lab[paper_pixels], axis=0)
+    color_diff = np.hypot(lab[..., 1] - paper[1], lab[..., 2] - paper[2])
+    near_coffee = cv2.dilate(coffee.astype(np.uint8), np.ones((7, 7), np.uint8)).astype(bool)
+    chaff = inner & (level >= threshold) & (level < 0.9) & (color_diff > 14) & ~near_coffee
+    chaff = cv2.morphologyEx(chaff.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    n, _, stats, _ = cv2.connectedComponentsWithStats(chaff, connectivity=8)
+    min_area = np.pi * (MIN_DIAMETER_PX / 2) ** 2
+    return int(np.sum(stats[1:, cv2.CC_STAT_AREA] >= min_area))
