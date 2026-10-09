@@ -1,1 +1,2 @@
 brew_id,date,time,bean_id,bean_name,roaster,origin,process,roast_level,roast_date,dripper,grinder,grinder_clicks,grind_d50_um,recipe,dose_g,water_temp_c,pours,brew_water_g,drawdown_end_s,beverage_g,bypass_g,aroma,flavor,acidity,body,balance,aftertaste,memo,flag,video_file,followed_recommendation
+20261009-1,2026-10-09,,B01,블루문 디카페인,루비아,,디카페인,강배전,2026-09-28,V60 NEO,메버릭1,95,1184,강배전 기준,20,82,0:40;60:80;120:40,160,197,,130,4,2.5,0,2,3,3,"영상 없음. 종료 시각은 방울 간격 2초 기준(바꾸기 전 기준)으로 직접 잼. 음료 무게 못 잼. 컵 노트: 견과류, 초콜릿. 뜨겁게 마신 뒤 아이스로 바꿈. 산미 0은 전혀 없음.",연습,,
