@@ -106,3 +106,83 @@ def speckle_marker(img, px_per_mm, window_mm, marker_id, fraction=0.5, blob_px=3
     speck = cv2.resize(blobs, (n * blob_px, n * blob_px), interpolation=cv2.INTER_NEAREST)[:size, :size].astype(bool)
     region[speck & (region < 128)] = gray
     return out
+
+# ---------------------------------------------------------------------------
+# 원두 입자 합성 이미지 (펴진 가루 칸을 흉내 낸 컬러 이미지)
+# ---------------------------------------------------------------------------
+
+PAPER_BGR = (222, 226, 228)  # 살짝 회색빛인 종이
+COFFEE_BGR = (28, 36, 52)  # 진한 갈색 원두 입자
+CHAFF_BGR = (110, 160, 200)  # 연한 황갈색 은피
+
+
+def make_particle_polygon(center, diameter, rng, n_vertices=None):
+    """면적이 지름 diameter인 원과 같은 불규칙한 다각형을 만든다 (단위는 호출한 쪽과 같음).
+    원두 입자처럼 모서리가 있는 모양을 흉내 낸다."""
+    n = n_vertices or int(rng.integers(7, 12))
+    angles = np.sort(rng.uniform(0, 2 * np.pi, n))
+    radii = 1.0 + rng.uniform(-0.25, 0.25, n)
+    pts = np.stack([radii * np.cos(angles), radii * np.sin(angles)], axis=1)
+    area = 0.5 * abs(np.dot(pts[:, 0], np.roll(pts[:, 1], -1)) - np.dot(pts[:, 1], np.roll(pts[:, 0], -1)))
+    target = np.pi * (diameter / 2) ** 2
+    return pts * np.sqrt(target / area) + np.asarray(center, dtype=float)
+
+
+def render_particles(size_px, px_per_mm, particles, chaff=(), shading=0.0, noise_sigma=2.0, supersample=8, seed=0):
+    """펴진 가루 칸처럼 보이는 컬러 이미지를 그린다.
+
+    particles, chaff: (중심 x mm, 중심 y mm, 등가원 지름 mm) 목록. 좌표는 가루 칸 왼쪽 위 기준.
+    shading: 0이면 고른 조명, 0.3이면 왼쪽에서 오른쪽으로 30% 어두워지는 조명.
+    돌려주는 값: (BGR 이미지, 실제로 그려진 입자들의 등가원 지름 mm 목록)
+
+    다각형을 칠하면 경계 픽셀까지 칠해져 면적이 요청한 값보다 조금 커진다.
+    그래서 정답은 요청한 지름이 아니라 입자마다 실제로 칠해진 면적에서 다시 계산한다.
+    """
+    rng = np.random.default_rng(seed)
+    big = size_px * supersample
+    scale = px_per_mm * supersample
+
+    def draw(items):
+        mask = np.zeros((big, big), dtype=np.uint8)
+        drawn = []
+        for x, y, d in items:
+            poly = make_particle_polygon((x * scale, y * scale), d * scale, rng)
+            x0, y0 = np.floor(poly.min(axis=0)).astype(int) - 2
+            x1, y1 = np.ceil(poly.max(axis=0)).astype(int) + 2
+            local = np.zeros((y1 - y0, x1 - x0), dtype=np.uint8)
+            cv2.fillPoly(local, [np.round((poly - (x0, y0)) * 8).astype(np.int32)], 255, lineType=cv2.LINE_8, shift=3)
+            drawn.append(2 * np.sqrt(np.count_nonzero(local) / np.pi) / scale)  # 실제로 칠해진 등가원 지름(mm)
+
+            # 가루 칸 밖으로 나간 부분은 잘라서 붙인다.
+            bx0, by0, bx1, by1 = max(x0, 0), max(y0, 0), min(x1, big), min(y1, big)
+            if bx0 < bx1 and by0 < by1:
+                region = mask[by0:by1, bx0:bx1]
+                np.maximum(region, local[by0 - y0 : by1 - y0, bx0 - x0 : bx1 - x0], out=region)
+        # 작게 줄이면서 평균을 내면 픽셀마다 입자가 덮은 비율이 된다.
+        cov = cv2.resize(mask, (size_px, size_px), interpolation=cv2.INTER_AREA).astype(np.float64) / 255.0
+        return cov, drawn
+
+    cov_coffee, drawn = draw(particles)
+    cov_chaff, _ = draw(chaff)
+    img = np.empty((size_px, size_px, 3), dtype=np.float64)
+    for ch in range(3):
+        img[..., ch] = PAPER_BGR[ch] * (1 - cov_coffee - cov_chaff) + COFFEE_BGR[ch] * cov_coffee + CHAFF_BGR[ch] * cov_chaff
+    if shading:
+        img *= (1.0 - shading * np.linspace(0, 1, size_px))[None, :, None]
+    if noise_sigma:
+        img += rng.normal(0, noise_sigma, img.shape)
+    return np.clip(img, 0, 255).astype(np.uint8), drawn
+
+
+def scattered_particles(n, square_mm, median_mm, sigma, seed=0, margin_mm=1.0):
+    """서로 닿지 않게 격자에 흩어 놓은 입자 목록. 지름은 로그정규 분포를 따른다."""
+    rng = np.random.default_rng(seed)
+    side = int(np.ceil(np.sqrt(n)))
+    cell = (square_mm - 2 * margin_mm) / side
+    diameters = np.clip(rng.lognormal(np.log(median_mm), sigma, n), 0.2 * median_mm, 0.55 * cell)
+    out = []
+    for i, d in enumerate(diameters):
+        cx = margin_mm + (i % side + 0.5) * cell + rng.uniform(-0.1, 0.1) * cell
+        cy = margin_mm + (i // side + 0.5) * cell + rng.uniform(-0.1, 0.1) * cell
+        out.append((cx, cy, float(d)))
+    return out
