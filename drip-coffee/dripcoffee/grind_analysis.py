@@ -6,6 +6,7 @@
 3. 마커 꼭짓점의 실제 위치(mm)를 이용해 사진을 정면에서 본 모습으로 펴고,
    픽셀 하나가 실제로 몇 µm인지 구한다.
 4. 펴진 가루 칸에서 입자를 찾아 입자마다 지름(µm)을 재고, 부피 기준 중앙값을 낸다.
+5. 같은 설정의 사진 여러 장을 합쳐 분쇄 프로필(D10/D50/D90, 크기 구간별 부피 비율)을 만든다.
 """
 from dataclasses import dataclass
 
@@ -209,7 +210,7 @@ BORDER_BAND_MM = 0.5
 #   들어가므로, 가장 깊게 들어간 곳의 깊이가 같은 넓이 원 반지름의 이 비율보다 크면 덩어리로 본다.
 #   합성 입자에서 단일 입자는 0.18 이하였고, 0.35로 두면 붙은 짝의 약 90%를 잡는다.
 #   실제 사진의 단일 입자는 가장자리가 더 거칠어서 0.25로는 너무 많이 뺐다.
-#   메버릭 클릭표는 출처를 확인하지 못해 이 값을 그 표에 맞추지는 않았다.
+#   메버릭 클릭표는 인터넷 기준의 비교용 값이라 이 값을 그 표에 맞추지는 않았다.
 MIN_SOLIDITY = 0.85
 MAX_NECK_DEPTH_RATIO = 0.35
 
@@ -234,11 +235,7 @@ class ParticleMeasurement:
 
 def volume_median(diameters):
     """부피 기준 중앙값. 큰 입자일수록 무게가 크므로 지름의 세제곱으로 가중한다."""
-    d = np.sort(np.asarray(diameters, dtype=float))
-    if d.size == 0:
-        return float("nan")
-    cumulative = np.cumsum(d**3) / np.sum(d**3)
-    return float(np.interp(0.5, cumulative, d))
+    return volume_percentile(diameters, 50)
 
 
 def flatten_lighting(image, px_per_mm):
@@ -362,3 +359,89 @@ def _count_chaff(image, level, coffee, inner, threshold):
     n, _, stats, _ = cv2.connectedComponentsWithStats(chaff, connectivity=8)
     min_area = np.pi * (MIN_DIAMETER_PX / 2) ** 2
     return int(np.sum(stats[1:, cv2.CC_STAT_AREA] >= min_area))
+
+
+# ---------------------------------------------------------------------------
+# 여러 장을 합친 분쇄 프로필
+# ---------------------------------------------------------------------------
+
+# 추출 모델에 넘길 크기 구간 경계(µm). 구간마다 1.5배씩 커지는 로그 간격이다.
+# 가장 작은 구간보다 작거나 가장 큰 구간보다 큰 입자는 양 끝 구간에 넣는다.
+SIZE_BIN_EDGES_UM = (100, 150, 225, 340, 510, 760, 1140, 1710, 2560, 3840)
+
+
+@dataclass
+class GrindProfile:
+    """같은 원두·같은 분쇄 설정에서 찍은 사진들을 합친 입자 크기 분포."""
+
+    n_photos: int
+    n_particles: int
+    d10_um: float  # 부피 기준 10% 지점 (이보다 작은 입자가 전체 부피의 10%)
+    d50_um: float  # 부피 기준 중앙값
+    d90_um: float  # 부피 기준 90% 지점
+    number_median_um: float  # 개수 기준 중앙값 (참고용)
+    bin_edges_um: tuple  # 크기 구간 경계
+    bin_volume_fractions: np.ndarray  # 구간마다 차지하는 부피 비율 (합이 1)
+    photo_d50_um: tuple  # 사진마다 따로 낸 부피 중앙값 (흔들림을 보는 용도)
+    min_diameter_um: float  # 합친 사진들 중 가장 큰 검출 하한
+    excluded_chaff: int
+    excluded_border: int
+    excluded_clumps: int
+    warnings: tuple = ()
+
+
+def volume_percentile(diameters, q):
+    """부피 기준 백분위 지름. q=50이면 부피 기준 중앙값과 같다."""
+    d = np.sort(np.asarray(diameters, dtype=float))
+    if d.size == 0:
+        return float("nan")
+    cumulative = np.cumsum(d**3) / np.sum(d**3)
+    return float(np.interp(q / 100.0, cumulative, d))
+
+
+def volume_fractions_by_bin(diameters, edges=SIZE_BIN_EDGES_UM):
+    """크기 구간마다 입자 부피가 차지하는 비율. 구간 수는 len(edges) - 1."""
+    d = np.asarray(diameters, dtype=float)
+    idx = np.clip(np.searchsorted(edges, d, side="right") - 1, 0, len(edges) - 2)
+    volume = np.bincount(idx, weights=d**3, minlength=len(edges) - 1)
+    total = volume.sum()
+    return volume / total if total > 0 else volume
+
+
+def combine_measurements(measurements):
+    """여러 사진의 측정 결과를 하나의 분쇄 프로필로 합친다.
+    사진 한 장에는 입자가 50~250개뿐이라 결과가 흔들리므로, 같은 설정의 사진을 모아서 본다."""
+    usable = [m for m in measurements if len(m.diameters_um) > 0]
+    if not usable:
+        raise GrindPhotoError("입자를 잰 사진이 없어요. 가루가 담긴 칸이 보이게 다시 찍어주세요.")
+    d = np.concatenate([m.diameters_um for m in usable])
+    warnings = []
+    if d.size < 300:
+        warnings.append(f"입자가 {d.size}개뿐이라 결과가 흔들릴 수 있어요. 사진을 더 찍어 합치면 안정돼요.")
+    clumps = sum(m.excluded_clumps for m in usable)
+    if clumps > 0.5 * d.size:
+        warnings.append(
+            f"붙어 있어서 뺀 덩어리가 {clumps}개로 많아요. 큰 입자가 덜 잡혔을 수 있으니 가루를 더 얇게 펴 주세요."
+        )
+    return GrindProfile(
+        n_photos=len(usable),
+        n_particles=int(d.size),
+        d10_um=volume_percentile(d, 10),
+        d50_um=volume_percentile(d, 50),
+        d90_um=volume_percentile(d, 90),
+        number_median_um=float(np.median(d)),
+        bin_edges_um=SIZE_BIN_EDGES_UM,
+        bin_volume_fractions=volume_fractions_by_bin(d),
+        photo_d50_um=tuple(m.d50_volume_um for m in usable),
+        min_diameter_um=max(m.min_diameter_um for m in usable),
+        excluded_chaff=sum(m.excluded_chaff for m in usable),
+        excluded_border=sum(m.excluded_border for m in usable),
+        excluded_clumps=clumps,
+        warnings=tuple(warnings),
+    )
+
+
+def analyze_photo(image, zone_name=None):
+    """사진 한 장을 펴고 입자를 잰다. (펴진 사진, 측정 결과)를 돌려준다."""
+    rectified = rectify_zone(image, zone_name=zone_name)
+    return rectified, measure_particles(rectified.image, rectified.um_per_px)
