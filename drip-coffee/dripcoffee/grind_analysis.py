@@ -71,10 +71,30 @@ def detect_markers(image):
     params = cv2.aruco.DetectorParameters()
     params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX  # 꼭짓점을 픽셀보다 정밀하게
     detector = cv2.aruco.ArucoDetector(sheet.aruco_dictionary(), params)
+
+    found = _run_detector(detector, padded, pad, 1.0)
+    expected = {m for zone in sheet.ZONES for m in zone.marker_ids}
+    for scale in (0.5, 0.25):
+        if expected <= found.keys():
+            break
+        # 토너가 얼룩지게 인쇄된 마커는 고해상도 사진에서 흰 반점이 보여 무늬를 못 읽는다
+        # (실제 카메라 사진에서 확인). 사진을 줄이면 이웃 픽셀이 평균나서 반점이 사라지므로,
+        # 줄인 사진에서 한 번 더 찾고 좌표만 원래 크기로 되돌린다.
+        small = cv2.resize(padded, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+        for marker_id, c in _run_detector(detector, small, pad, scale).items():
+            found.setdefault(marker_id, c)
+    return found
+
+
+def _run_detector(detector, padded, pad, scale):
     corners, ids, _ = detector.detectMarkers(padded)
     if ids is None:
         return {}
-    return {int(i): c.reshape(4, 2).astype(np.float64) - pad for i, c in zip(ids.flatten(), corners)}
+    # 줄인 사진의 픽셀 중심 좌표를 원래 사진 좌표로 되돌린다: (c + 0.5) / scale - 0.5
+    return {
+        int(i): (c.reshape(4, 2).astype(np.float64) + 0.5) / scale - 0.5 - pad
+        for i, c in zip(ids.flatten(), corners)
+    }
 
 
 def visible_ids(markers, zone):

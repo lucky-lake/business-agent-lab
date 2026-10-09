@@ -86,3 +86,23 @@ def cover_marker(img, px_per_mm, window_mm, marker_id):
     out = img.copy()
     cv2.rectangle(out, p0, p1, 255, -1)
     return out
+
+
+
+def speckle_marker(img, px_per_mm, window_mm, marker_id, fraction=0.5, blob_px=3, gray=190, seed=0):
+    """마커 하나의 검은 부분에 흰 반점을 뿌린다 (토너가 얼룩지게 인쇄된 마커 흉내).
+    실제 카메라 사진에서 이런 마커가 원래 해상도에서는 검출되지 않았다.
+    반점은 blob_px 크기의 덩어리로 뿌려야 실제처럼 원래 해상도에서 검출이 실패한다."""
+    zone = sheet.zone_for_marker(marker_id)
+    mx, my = zone.marker_origins()[zone.marker_ids.index(marker_id)]
+    x0 = int(round((mx - window_mm[0]) * px_per_mm))
+    y0 = int(round((my - window_mm[1]) * px_per_mm))
+    size = int(round(zone.marker_size * px_per_mm))
+    out = img.copy()
+    region = out[y0 : y0 + size, x0 : x0 + size]
+    rng = np.random.default_rng(seed)
+    n = int(np.ceil(size / blob_px))
+    blobs = (rng.random((n, n)) < fraction).astype(np.uint8)
+    speck = cv2.resize(blobs, (n * blob_px, n * blob_px), interpolation=cv2.INTER_NEAREST)[:size, :size].astype(bool)
+    region[speck & (region < 128)] = gray
+    return out

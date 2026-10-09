@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from dripcoffee import grind_analysis as ga
-from tests.synthetic import cover_marker, render_sheet_window, simulate_photo
+from tests.synthetic import cover_marker, render_sheet_window, simulate_photo, speckle_marker
 
 WINDOW_A = (12.0, 22.0, 108.0, 118.0)  # A칸과 마커 네 개가 들어가는 영역 (mm)
 WINDOW_B = (128.0, 33.0, 177.0, 82.0)  # B칸 영역
@@ -76,6 +76,24 @@ def test_marker_touching_photo_edge_is_still_found():
     cropped = flat[:, : right_edge_px + 1]
     rectified = ga.rectify_zone(cropped)
     assert rectified.zone.name == "A"
+    check_dots(rectified, DOTS_A, (rectified.zone.square_x, rectified.zone.square_y))
+
+
+def test_speckled_marker_is_found_by_retrying_on_smaller_image():
+    # 실제 카메라 사진에서 토너가 얼룩진 마커가 원래 해상도로는 검출되지 않은 경우를 재현한다.
+    flat = render_sheet_window(40.0, WINDOW_A, DOTS_A)
+    speckled = speckle_marker(flat, 40.0, WINDOW_A, marker_id=0)
+    photo = simulate_photo(speckled, tilt=0.03, angle_deg=4.0, blur_sigma=0.6)
+
+    # 원래 해상도로만 찾으면 실패하는지 먼저 확인한다 (실제 사진과 같은 상황인지).
+    padded = cv2.copyMakeBorder(photo, 60, 60, 60, 60, cv2.BORDER_REPLICATE)
+    _, ids, _ = cv2.aruco.ArucoDetector(ga.sheet.aruco_dictionary(), cv2.aruco.DetectorParameters()).detectMarkers(padded)
+    assert ids is None or 0 not in ids.flatten()
+
+    markers = ga.detect_markers(photo)
+    assert 0 in markers
+    rectified = ga.rectify_zone(photo, markers)
+    assert rectified.missing_marker_ids == ()
     check_dots(rectified, DOTS_A, (rectified.zone.square_x, rectified.zone.square_y))
 
 
