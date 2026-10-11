@@ -9,7 +9,11 @@
 5. 같은 가루의 사진 한 장 또는 여러 장을 합쳐 분쇄 프로필(대표 크기 D50과 흔들림 범위, 가장 많은 크기,
    대부분의 범위, D10/D90, 크기 구간별 부피 비율)을 만들고, 화면에 그릴 분포 곡선을 계산한다.
 """
+import json
+import re
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -535,3 +539,60 @@ def analyze_photo(image, zone_name=None):
     """사진 한 장을 펴고 입자를 잰다. (펴진 사진, 측정 결과)를 돌려준다."""
     rectified = rectify_zone(image, zone_name=zone_name)
     return rectified, measure_particles(rectified.image, rectified.um_per_px)
+
+
+# ---------------------------------------------------------------------------
+# 측정 저장과 불러오기 (앱이 data/local/ 아래에 저장하고, 추출 예측이 불러 쓴다)
+# ---------------------------------------------------------------------------
+
+
+def profile_record(profile, bean_id, grinder, grinder_clicks, brew_id="", photo_names=(), saved_at=None):
+    """분쇄 프로필을 원두·그라인더 정보와 함께 저장할 수 있는 dict로 만든다."""
+    saved_at = saved_at or datetime.now()
+    return {
+        "saved_at": saved_at.isoformat(timespec="seconds"),
+        "bean_id": bean_id,
+        "grinder": grinder,
+        "grinder_clicks": grinder_clicks,
+        "brew_id": brew_id,
+        "photo_names": list(photo_names),
+        "n_photos": profile.n_photos,
+        "n_particles": profile.n_particles,
+        "d50_um": round(profile.d50_um, 1),
+        "d50_range_um": [round(v, 1) for v in profile.d50_range_um],
+        "mode_um": round(profile.mode_um, 1),
+        "spread_range_um": [round(v, 1) for v in profile.spread_range_um],
+        "d10_um": round(profile.d10_um, 1),
+        "d90_um": round(profile.d90_um, 1),
+        "span": round(profile.span, 3),
+        "min_diameter_um": round(profile.min_diameter_um, 1),
+        "excluded_clumps": profile.excluded_clumps,
+        "excluded_border": profile.excluded_border,
+        "excluded_chaff": profile.excluded_chaff,
+        "warnings": list(profile.warnings),
+        "diameters_um": [round(float(v), 1) for v in profile.diameters_um],
+    }
+
+
+def save_profile(record, folder):
+    """측정 기록을 JSON 파일 하나로 저장하고 경로를 돌려준다. 파일 이름은 저장 시각, 원두, 클릭 수."""
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = record["saved_at"].replace("-", "").replace(":", "").replace("T", "-")
+    path = folder / f"{stamp}_{_safe_name(record['bean_id'])}_{record['grinder_clicks']}.json"
+    path.write_text(json.dumps(record, ensure_ascii=False, indent=1), encoding="utf-8")
+    return path
+
+
+def load_profiles(folder):
+    """저장한 측정 기록을 저장 시각 순서로 불러온다. 폴더가 없으면 빈 목록."""
+    folder = Path(folder)
+    if not folder.exists():
+        return []
+    records = [json.loads(p.read_text(encoding="utf-8")) for p in folder.glob("*.json")]
+    return sorted(records, key=lambda r: r["saved_at"])
+
+
+def _safe_name(text):
+    """파일 이름에 쓸 수 없는 글자를 _로 바꾼다 (한글, 영문, 숫자, -, _만 남긴다)."""
+    return re.sub(r"[^0-9A-Za-z가-힣_-]", "_", str(text).strip()) or "원두"

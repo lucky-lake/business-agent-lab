@@ -120,3 +120,26 @@ def test_click_table_is_monotonic():
     sizes = [table[c] for c in clicks]
     assert all(a < b for a, b in zip(sizes, sizes[1:]))
     assert table[95] == 1000
+
+
+def test_saved_profile_comes_back_the_same(tmp_path):
+    from datetime import datetime
+
+    profile = ga.combine_measurements([make_measurement(np.random.default_rng(5).lognormal(np.log(900), 0.4, 300))])
+    record = ga.profile_record(profile, "B01", "메버릭1", 95, brew_id="20261012-1",
+                               photo_names=["분쇄도 A1.jpg"], saved_at=datetime(2026, 10, 12, 21, 30, 5))
+    path = ga.save_profile(record, tmp_path / "grind_profiles")
+    assert path.name == "20261012-213005_B01_95.json"
+    loaded = ga.load_profiles(tmp_path / "grind_profiles")
+    assert loaded == [record]
+    assert loaded[0]["d50_um"] == pytest.approx(profile.d50_um, abs=0.1)
+    assert len(loaded[0]["diameters_um"]) == profile.n_particles
+
+
+def test_profile_file_name_is_safe_and_missing_folder_is_empty(tmp_path):
+    profile = ga.combine_measurements([make_measurement([700, 800, 900] * 100)])
+    record = ga.profile_record(profile, "블루문/디카페인 #1", "메버릭1", 95)
+    path = ga.save_profile(record, tmp_path)
+    assert path.parent == tmp_path
+    assert "블루문_디카페인__1" in path.name
+    assert ga.load_profiles(tmp_path / "없는 폴더") == []
