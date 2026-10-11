@@ -44,6 +44,55 @@ def test_combine_pools_all_photos():
     assert profile.warnings == ()
 
 
+def test_combine_reports_spread_and_keeps_particle_sizes():
+    a = make_measurement(np.random.default_rng(1).lognormal(np.log(800), 0.4, 400))
+    profile = ga.combine_measurements([a])
+    assert profile.span == pytest.approx((profile.d90_um - profile.d10_um) / profile.d50_um)
+    assert np.array_equal(profile.diameters_um, a.diameters_um)
+    low, high = profile.d50_range_um
+    assert low < profile.d50_um < high
+    # 대부분의 범위는 부피 기준 16~84% 지점이고, 대표 크기와 가장 많은 크기가 그 안에 있다.
+    spread_low, spread_high = profile.spread_range_um
+    assert spread_low == pytest.approx(ga.volume_percentile(a.diameters_um, 16))
+    assert spread_high == pytest.approx(ga.volume_percentile(a.diameters_um, 84))
+    assert spread_low < profile.d50_um < spread_high
+    assert spread_low < profile.mode_um < spread_high
+
+
+def test_most_common_size_is_the_curve_peak():
+    d = np.random.default_rng(4).lognormal(np.log(700), 0.35, 3000)
+    sizes, density = ga.size_distribution_curve(d)
+    assert ga.most_common_size(d) == sizes[np.argmax(density)]
+    assert np.isnan(ga.most_common_size([800, 900]))
+
+
+def test_d50_range_narrows_with_more_particles():
+    # 같은 가루라도 입자를 많이 잴수록 D50이 덜 흔들려야 한다.
+    rng = np.random.default_rng(2)
+    few = rng.lognormal(np.log(800), 0.4, 100)
+    many = rng.lognormal(np.log(800), 0.4, 1600)
+    low_few, high_few = ga.d50_range(few)
+    low_many, high_many = ga.d50_range(many)
+    assert high_many - low_many < 0.5 * (high_few - low_few)
+    # 매번 같은 결과가 나와야 화면이 새로 그려질 때 숫자가 바뀌지 않는다.
+    assert ga.d50_range(few) == (low_few, high_few)
+
+
+def test_distribution_curve_peaks_where_the_mass_is():
+    # 로그 정규 분포는 부피로 가중해도 로그 정규라서, 부피 곡선의 봉우리가 부피 D50 근처에 있어야 한다.
+    d = np.random.default_rng(3).lognormal(np.log(700), 0.35, 3000)
+    sizes, density = ga.size_distribution_curve(d, by_volume=True)
+    assert sizes[np.argmax(density)] == pytest.approx(ga.volume_median(d), rel=0.1)
+    sizes_n, density_n = ga.size_distribution_curve(d, by_volume=False)
+    assert sizes_n[np.argmax(density_n)] == pytest.approx(np.median(d), rel=0.1)
+    # 곡선 아래 넓이(로그 지름 기준)는 1이다.
+    assert np.trapezoid(density, np.log10(sizes)) == pytest.approx(1.0, abs=0.02)
+
+
+def test_distribution_curve_needs_a_few_particles():
+    assert ga.size_distribution_curve([800, 900]) is None
+
+
 def test_combine_warns_when_few_particles_or_many_clumps():
     profile = ga.combine_measurements([make_measurement([800] * 50, clumps=40)])
     assert any("흔들릴 수 있어요" in w for w in profile.warnings)

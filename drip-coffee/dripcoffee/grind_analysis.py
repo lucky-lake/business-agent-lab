@@ -6,12 +6,14 @@
 3. 마커 꼭짓점의 실제 위치(mm)를 이용해 사진을 정면에서 본 모습으로 펴고,
    픽셀 하나가 실제로 몇 µm인지 구한다.
 4. 펴진 가루 칸에서 입자를 찾아 입자마다 지름(µm)을 재고, 부피 기준 중앙값을 낸다.
-5. 같은 설정의 사진 여러 장을 합쳐 분쇄 프로필(D10/D50/D90, 크기 구간별 부피 비율)을 만든다.
+5. 같은 가루의 사진 한 장 또는 여러 장을 합쳐 분쇄 프로필(대표 크기 D50과 흔들림 범위, 가장 많은 크기,
+   대부분의 범위, D10/D90, 크기 구간별 부피 비율)을 만들고, 화면에 그릴 분포 곡선을 계산한다.
 """
 from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
+from scipy.stats import gaussian_kde
 
 from dripcoffee import sheet
 
@@ -392,6 +394,21 @@ def _count_chaff(image, level, coffee, inner, threshold):
 # 가장 작은 구간보다 작거나 가장 큰 구간보다 큰 입자는 양 끝 구간에 넣는다.
 SIZE_BIN_EDGES_UM = (100, 150, 225, 340, 510, 760, 1140, 1710, 2560, 3840)
 
+# D50 흔들림 범위를 구할 때 입자를 다시 뽑는 횟수와, 돌려줄 구간(백분위).
+BOOTSTRAP_ROUNDS = 1000
+D50_RANGE_PERCENTILES = (5, 95)
+
+# 화면에 '대부분의 범위'로 보여줄 부피 기준 백분위. 정규분포에서 평균 ± 표준편차 안에 68%가 들어가는 것과
+# 같은 범위(16~84%)다. 개수 기준 평균·표준편차는 작은 가루와 사진 해상도에 크게 흔들려서 쓰지 않는다
+# (실제 사진에서 85·95·105클릭의 개수 평균이 631·674·603µm로 클릭 순서를 따르지 않았다).
+SPREAD_PERCENTILES = (16, 84)
+
+# 분포 곡선을 매끄럽게 다듬는 정도 (scipy gaussian_kde의 bw_method).
+# 부피로 가중하면 큰 입자 몇 개가 곡선을 좌우해서, 실제 사진(입자 300~600개)으로 그려 보니
+# 0.25로는 큰 입자마다 봉우리가 따로 생겼다. 0.5로 두면 한 봉우리로 보인다. 개수 기준은 0.3.
+CURVE_SMOOTHING = {True: 0.5, False: 0.3}
+CURVE_RANGE_UM = (100, 4000)
+
 
 @dataclass
 class GrindProfile:
@@ -402,6 +419,11 @@ class GrindProfile:
     d10_um: float  # 부피 기준 10% 지점 (이보다 작은 입자가 전체 부피의 10%)
     d50_um: float  # 부피 기준 중앙값
     d90_um: float  # 부피 기준 90% 지점
+    d50_range_um: tuple  # 같은 가루를 다시 찍으면 D50이 달라질 수 있는 범위 (5~95%)
+    mode_um: float  # 가장 많은 크기: 부피 기준 분포 곡선의 봉우리
+    spread_range_um: tuple  # 대부분의 범위: 가루 부피의 68%가 들어가는 지름 범위 (D16~D84)
+    span: float  # 분포 폭 (D90 - D10) / D50. 작을수록 고르게 갈렸다
+    diameters_um: np.ndarray  # 합친 입자 지름 전체 (분포 곡선을 그리고 저장하는 데 쓴다)
     number_median_um: float  # 개수 기준 중앙값 (참고용)
     bin_edges_um: tuple  # 크기 구간 경계
     bin_volume_fractions: np.ndarray  # 구간마다 차지하는 부피 비율 (합이 1)
@@ -431,6 +453,45 @@ def volume_fractions_by_bin(diameters, edges=SIZE_BIN_EDGES_UM):
     return volume / total if total > 0 else volume
 
 
+def d50_range(diameters, rounds=BOOTSTRAP_ROUNDS, seed=0):
+    """같은 가루를 다시 찍었을 때 D50이 달라질 수 있는 범위(µm).
+
+    잰 입자들 중에서 같은 개수만큼 중복을 허용해 다시 뽑고(부트스트랩) D50을 구하기를 여러 번 반복해,
+    그 결과의 5~95% 구간을 돌려준다. 입자가 적을수록 범위가 넓다.
+    시드를 고정해서 같은 입력이면 항상 같은 범위가 나온다.
+    """
+    d = np.asarray(diameters, dtype=float)
+    if d.size < 2:
+        return (float("nan"), float("nan"))
+    rng = np.random.default_rng(seed)
+    medians = [volume_percentile(rng.choice(d, d.size), 50) for _ in range(rounds)]
+    low, high = np.percentile(medians, D50_RANGE_PERCENTILES)
+    return (float(low), float(high))
+
+
+def size_distribution_curve(diameters, by_volume=True, points=300):
+    """분포 곡선을 그리기 위한 (지름 µm 배열, 밀도 배열). 입자가 너무 적으면 None.
+
+    입자 크기는 로그 눈금에서 종 모양에 가까우므로 log10(지름) 위에서 커널 밀도 추정으로 매끄럽게 그린다.
+    by_volume이면 입자마다 부피(지름³)로 가중한다. 곡선 아래 넓이(log10 지름 기준)는 1이다.
+    """
+    d = np.asarray(diameters, dtype=float)
+    if d.size < 3 or np.ptp(np.log10(d)) == 0:
+        return None
+    kde = gaussian_kde(np.log10(d), weights=d**3 if by_volume else None, bw_method=CURVE_SMOOTHING[by_volume])
+    grid = np.linspace(np.log10(CURVE_RANGE_UM[0]), np.log10(CURVE_RANGE_UM[1]), points)
+    return 10**grid, kde(grid)
+
+
+def most_common_size(diameters):
+    """가장 많은 크기(µm): 부피 기준 분포 곡선의 봉우리. 입자가 너무 적으면 nan."""
+    curve = size_distribution_curve(diameters, by_volume=True)
+    if curve is None:
+        return float("nan")
+    sizes, density = curve
+    return float(sizes[np.argmax(density)])
+
+
 def combine_measurements(measurements):
     """여러 사진의 측정 결과를 하나의 분쇄 프로필로 합친다.
     사진 한 장에는 입자가 50~250개뿐이라 결과가 흔들리므로, 같은 설정의 사진을 모아서 본다."""
@@ -446,12 +507,18 @@ def combine_measurements(measurements):
         warnings.append(
             f"붙어 있어서 뺀 덩어리가 {clumps}개로 많아요. 큰 입자가 덜 잡혔을 수 있으니 가루를 더 얇게 펴 주세요."
         )
+    d10, d50, d90 = (volume_percentile(d, q) for q in (10, 50, 90))
     return GrindProfile(
         n_photos=len(usable),
         n_particles=int(d.size),
-        d10_um=volume_percentile(d, 10),
-        d50_um=volume_percentile(d, 50),
-        d90_um=volume_percentile(d, 90),
+        d10_um=d10,
+        d50_um=d50,
+        d90_um=d90,
+        d50_range_um=d50_range(d),
+        mode_um=most_common_size(d),
+        spread_range_um=tuple(volume_percentile(d, q) for q in SPREAD_PERCENTILES),
+        span=(d90 - d10) / d50,
+        diameters_um=d,
         number_median_um=float(np.median(d)),
         bin_edges_um=SIZE_BIN_EDGES_UM,
         bin_volume_fractions=volume_fractions_by_bin(d),
