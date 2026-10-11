@@ -8,7 +8,7 @@
 4. 펴진 가루 칸에서 입자를 찾아 입자마다 지름(µm)을 재고, 부피 기준 중앙값을 낸다.
 5. 같은 설정의 사진 여러 장을 합쳐 분쇄 프로필(D10/D50/D90, 크기 구간별 부피 비율)을 만든다.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
@@ -231,6 +231,9 @@ class ParticleMeasurement:
     excluded_border: int  # 칸 경계에 걸려 뺀 입자 수
     excluded_clumps: int = 0  # 여러 입자가 붙은 덩어리로 보여 뺀 수
     warnings: tuple = ()
+    # 화면에 겹쳐 그릴 윤곽선. 종류("measured" 잰 입자, "clump" 덩어리, "border" 테두리에 걸린 입자)마다
+    # 펴진 이미지 좌표(픽셀)의 윤곽선 목록. "measured"는 diameters_um과 같은 순서다.
+    outlines: dict = field(default_factory=dict)
 
 
 def volume_median(diameters):
@@ -266,6 +269,7 @@ def measure_particles(image, um_per_px):
     4. 칸 가장자리 띠에 걸친 입자는 잘린 입자로 보고 뺀다.
     5. 오목하게 들어간 곳이 많은 덩어리(붙은 입자)는 큰 입자 하나로 잘못 재지 않도록 뺀다.
     6. 입자마다 덮인 비율을 더해 면적을 구하고, 같은 면적의 원 지름으로 바꾼다.
+    7. 화면에 겹쳐 그릴 수 있게 잰 입자·덩어리·테두리 입자의 윤곽선도 함께 돌려준다.
     """
     px_per_mm = 1000.0 / um_per_px
     level = flatten_lighting(image, px_per_mm)
@@ -276,7 +280,7 @@ def measure_particles(image, um_per_px):
 
     empty = ParticleMeasurement(
         np.array([]), np.zeros((0, 2)), um_per_px, float("nan"), MIN_DIAMETER_PX * um_per_px, 0, 0, 0,
-        ("가루 칸에서 입자를 찾지 못했어요.",),
+        ("가루 칸에서 입자를 찾지 못했어요.",), {"measured": [], "clump": [], "border": []},
     )
     dark = level[inner & (level < 0.6)]
     if dark.size == 0:
@@ -289,14 +293,16 @@ def measure_particles(image, um_per_px):
 
     n, labels, stats, _ = cv2.connectedComponentsWithStats(coffee.astype(np.uint8), connectivity=8)
     coverage = np.clip((1.0 - level) / (1.0 - coffee_level), 0.0, 1.0)
-    diameters, centroids, excluded_border, excluded_clumps = [], [], 0, 0
+    diameters, centroids = [], []
+    outlines = {"measured": [], "clump": [], "border": []}
     for i in range(1, n):
         x, y, bw, bh, pixel_count = stats[i]
+        mask = labels[y : y + bh, x : x + bw] == i
         if x <= band or y <= band or x + bw >= w - band or y + bh >= h - band:
-            excluded_border += 1
+            outlines["border"].append(_outline(mask, x, y))
             continue
-        if 2.0 * np.sqrt(pixel_count / np.pi) >= MIN_DIAMETER_PX and _is_clump(labels[y : y + bh, x : x + bw] == i):
-            excluded_clumps += 1
+        if 2.0 * np.sqrt(pixel_count / np.pi) >= MIN_DIAMETER_PX and _is_clump(mask):
+            outlines["clump"].append(_outline(mask, x, y))
             continue
         # 경계의 반쯤 덮인 픽셀까지 넣으려고 한 픽셀 넓힌 영역에서 덮인 비율을 더한다.
         y0, y1, x0, x1 = max(y - 1, 0), min(y + bh + 1, h), max(x - 1, 0), min(x + bw + 1, w)
@@ -311,14 +317,31 @@ def measure_particles(image, um_per_px):
         cy = (np.sum(ys * weights) / weights.sum() + y0) / px_per_mm
         diameters.append(d_px * um_per_px)
         centroids.append((cx, cy))
+        outlines["measured"].append(_outline(mask, x, y))
 
+    excluded_border, excluded_clumps = len(outlines["border"]), len(outlines["clump"])
     if not diameters:
-        return empty
+        # 잰 입자가 없어도 무엇을 왜 뺐는지 보여줄 수 있게 뺀 개수와 윤곽선은 돌려준다.
+        warning = "가루 칸에서 잴 수 있는 입자를 찾지 못했어요."
+        if excluded_border or excluded_clumps:
+            warning += " 칸 테두리에 걸리거나 서로 붙은 입자만 있어요. 가루를 칸 안쪽에 듬성듬성 펴 주세요."
+        return ParticleMeasurement(
+            np.array([]), np.zeros((0, 2)), um_per_px, float("nan"), MIN_DIAMETER_PX * um_per_px,
+            excluded_chaff, excluded_border, excluded_clumps, (warning,), outlines,
+        )
     d = np.array(diameters)
     return ParticleMeasurement(
         d, np.array(centroids), um_per_px, volume_median(d), MIN_DIAMETER_PX * um_per_px,
-        excluded_chaff, excluded_border, excluded_clumps,
+        excluded_chaff, excluded_border, excluded_clumps, outlines=outlines,
     )
+
+
+def _outline(mask, x, y):
+    """입자 하나의 바깥 윤곽선을 펴진 이미지 좌표(픽셀)로 돌려준다. mask는 (x, y)에서 시작하는 잘린 영역이다."""
+    # OpenCV는 이미지 맨 가장자리 픽셀을 윤곽선 계산에서 0으로 보므로 한 픽셀 여백을 붙인다.
+    padded = cv2.copyMakeBorder(mask.astype(np.uint8), 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
+    contours, _ = cv2.findContours(padded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    return max(contours, key=cv2.contourArea) + np.array([x - 1, y - 1], dtype=np.int32)
 
 
 def _is_clump(mask):

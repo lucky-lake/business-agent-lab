@@ -4,6 +4,7 @@
 검출한 입자의 개수와 지름이 정답과 얼마나 맞는지 확인한다.
 하한 미만 미분 집계와 입자 붙음 경고는 아직 넣지 않기로 해서 보류(skip)로 둔다.
 """
+import cv2
 import numpy as np
 import pytest
 
@@ -95,6 +96,46 @@ def test_touching_pairs_are_left_out_as_clumps():
     m = ga.measure_particles(img, UM_PER_PX)
     assert m.excluded_clumps >= 0.8 * len(pairs)
     assert len(m.diameters_um) <= len(singles) + 0.2 * len(pairs)
+
+
+def test_outlines_match_counts_by_kind():
+    # 화면에서 잰 입자·덩어리·테두리 입자를 색으로 나눠 그리려면 개수가 결과와 맞아야 한다.
+    singles = scattered_particles(36, SQUARE_MM, 0.7, 0.2, seed=9)
+    pairs = scattered_particles(36, SQUARE_MM, 0.7, 0.2, seed=10)[::3]
+    touching = [(x + 0.95 * d, y, d) for x, y, d in pairs]
+    singles = [p for i, p in enumerate(singles) if i % 3 != 0]
+    on_edge = [(0.0, SQUARE_MM / 2, 2.0)]  # 반쯤 칸 안으로 들어온 큰 입자
+    img, _ = render_particles(SIZE_PX, PX_PER_MM, singles + pairs + touching + on_edge)
+    m = ga.measure_particles(img, UM_PER_PX)
+    assert len(m.outlines["measured"]) == len(m.diameters_um)
+    assert len(m.outlines["clump"]) == m.excluded_clumps > 0
+    assert len(m.outlines["border"]) == m.excluded_border > 0
+
+
+def test_outlines_sit_on_their_particles():
+    # 윤곽선이 펴진 이미지 좌표(픽셀)로 제자리에 있어야 사진 위에 겹쳐 그릴 수 있다.
+    parts = scattered_particles(25, SQUARE_MM, 0.9, 0.3, seed=11)
+    img, _ = render_particles(SIZE_PX, PX_PER_MM, parts)
+    m = ga.measure_particles(img, UM_PER_PX)
+    assert len(m.outlines["measured"]) == len(parts)
+    for outline, (cx_mm, cy_mm), d_um in zip(m.outlines["measured"], m.centroids_mm, m.diameters_um):
+        moments = cv2.moments(outline)
+        center = (moments["m10"] / moments["m00"], moments["m01"] / moments["m00"])
+        assert np.hypot(center[0] - cx_mm * PX_PER_MM, center[1] - cy_mm * PX_PER_MM) < 1.5
+        # 윤곽선이 감싼 넓이는 같은 지름의 원과 비슷해야 한다 (경계 픽셀 처리 차이로 조금 작다).
+        area = moments["m00"]
+        assert 0.8 < area / (np.pi * (d_um / UM_PER_PX / 2) ** 2) < 1.05
+
+
+def test_nothing_measurable_still_reports_what_was_left_out():
+    # 입자가 모두 칸 테두리에 걸렸어도, 왜 못 쟀는지 보여줄 수 있게 뺀 개수와 윤곽선을 돌려준다.
+    on_edges = [(0.0, SQUARE_MM / 2, 2.0), (SQUARE_MM, SQUARE_MM / 2, 2.0)]
+    img, _ = render_particles(SIZE_PX, PX_PER_MM, on_edges)
+    m = ga.measure_particles(img, UM_PER_PX)
+    assert len(m.diameters_um) == 0
+    assert m.excluded_border == 2
+    assert len(m.outlines["border"]) == 2
+    assert m.warnings
 
 
 @HELD
