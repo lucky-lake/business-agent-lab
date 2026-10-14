@@ -166,6 +166,44 @@ def _log_interp(temp_c, table):
     return math.exp(logs[i] + slope * (temp_c - temps[i]))
 
 
+def _release_curve(grind, dose_g, slurry_temp_c, p):
+    """첫 물이 닿은 뒤 t초 동안 원두에서 녹아 나온 성분(g)을 돌려주는 함수를 만든다 (식 4~7).
+
+    크기 구간마다 '표면에서 바로 나오는 몫 + 입자 속에서 천천히 나오는 몫'을 더하고,
+    사진에 안 잡히는 미분은 따로 한 구간으로 넣는다.
+    """
+    diameters = np.append(grind.diameters_um, p.fines_diameter_um)
+    fractions = np.append(grind.volume_fractions * (1 - p.fines_fraction), p.fines_fraction)
+    shell = np.clip(1 - (1 - 2 * p.surface_shell_um / diameters) ** 3, 0, 1)
+    temp_factor = math.exp(
+        -p.activation_energy_j_per_mol / GAS_CONSTANT
+        * (1 / (slurry_temp_c + 273.15) - 1 / (p.slow_rate_t_ref_c + 273.15))
+    )
+    slow_rates = p.slow_rate_ref_per_s * (p.slow_rate_r_ref_um / (diameters / 2)) ** 2 * temp_factor
+
+    def released_at(t):
+        released_fraction = shell + (1 - shell) * (1 - np.exp(-slow_rates * t))
+        return p.max_extractable * dose_g * float(np.sum(fractions * released_fraction))
+
+    return released_at
+
+
+def extraction_only(grind, dose_g, water_g, water_temp_c, contact_s, params=DEFAULT_PARAMS):
+    """물 흐름 없이 추출만 계산한다. 드리퍼가 아닌 기구(배치 브루어 등)의 문헌 데이터와 비교할 때 쓴다.
+
+    contact_s 동안 녹아 나온 성분이 액체 전체에 고루 섞여 있다고 보고, 가루가 머금은 액체에 남는 몫을 뺀
+    나머지가 음료로 나간다고 계산한다. (추출수율 %, 가수 전 농도 %)를 돌려준다.
+    """
+    p = params
+    released = _release_curve(grind, dose_g, water_temp_c - p.slurry_temp_drop_c, p)(contact_s)
+    liquid = water_g + released
+    beverage = liquid - p.held_liquid_ratio * dose_g
+    if beverage <= 0:
+        raise RecipeError("부은 물이 가루가 머금는 양보다 적어서 음료가 나오지 않아요.")
+    dissolved = released * beverage / liquid
+    return 100 * dissolved / dose_g, 100 * dissolved / beverage
+
+
 def predict(recipe, grind, params=DEFAULT_PARAMS):
     """레시피와 분쇄도로 추출 결과를 예측한다."""
     if recipe.dose_g <= 0:
@@ -195,19 +233,7 @@ def predict(recipe, grind, params=DEFAULT_PARAMS):
         height_m = (3 * volume_ml / (math.pi * tan2)) ** (1 / 3) / 100  # 물 표면 높이 (식 1)
         return rho * GRAVITY * height_m / (mu * resistance) * 1e6 * rho_g_per_ml  # 식 2, m³/s → g/s
 
-    # 추출: 크기 구간 + 미분 구간 (식 4~7)
-    diameters = np.append(grind.diameters_um, p.fines_diameter_um)
-    fractions = np.append(grind.volume_fractions * (1 - p.fines_fraction), p.fines_fraction)
-    shell = np.clip(1 - (1 - 2 * p.surface_shell_um / diameters) ** 3, 0, 1)
-    temp_factor = math.exp(
-        -p.activation_energy_j_per_mol / GAS_CONSTANT
-        * (1 / (temp_c + 273.15) - 1 / (p.slow_rate_t_ref_c + 273.15))
-    )
-    slow_rates = p.slow_rate_ref_per_s * (p.slow_rate_r_ref_um / (diameters / 2)) ** 2 * temp_factor
-
-    def released_at(t):
-        released_fraction = shell + (1 - shell) * (1 - np.exp(-slow_rates * t))
-        return p.max_extractable * dose * float(np.sum(fractions * released_fraction))
+    released_at = _release_curve(grind, dose, temp_c, p)
 
     pours = recipe.pours
     last_pour_end = max(pour.start_s + pour.grams / p.pour_rate_g_per_s for pour in pours)
