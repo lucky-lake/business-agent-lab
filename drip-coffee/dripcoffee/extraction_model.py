@@ -70,7 +70,7 @@ class ModelParams:
     pour_rate_g_per_s: float = 5.0  # 붓는 속도 (가정 → 측정 예정)
     # 추출 (노트2)
     max_extractable: float = 0.30  # E_max: 녹아 나올 수 있는 성분 비율 (K8, K5)
-    slow_rate_ref_per_s: float = 2.67e-3  # k_ref: 입자 속 성분의 추출 속도 (K2 카페인, 반지름 925 µm, 80 °C)
+    slow_rate_ref_per_s: float = 1.99e-3  # k_ref: 입자 속 성분의 추출 속도 (반지름 925 µm, 80 °C). 문헌 범위 안에서 문헌 비교로 정함 (MODEL.md 6절)
     slow_rate_r_ref_um: float = 925.0
     slow_rate_t_ref_c: float = 80.0
     activation_energy_j_per_mol: float = 17.3e3  # Ea (K3, 물속 카페인 확산. 커피 전체 성분 값이 없어 가정)
