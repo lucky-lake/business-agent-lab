@@ -42,6 +42,7 @@ TASTE_GUIDE = {
     "balance": ("단맛·산미·쓴맛·바디가 어울리는 정도", "1 한 가지가 튀어 거슬림 · 3 대체로 괜찮지만 한쪽으로 치우침 · 5 잘 어우러짐"),
     "aftertaste": ("삼키고 5초쯤 뒤 남는 맛의 만족도", "1 금방 사라지거나 떫고 쓴 맛이 남음 · 3 무난하게 남다 사라짐 · 5 좋은 맛이 길게 남음"),
 }
+UNRATED = "–"  # 맛 슬라이더의 맨 왼쪽 칸: 아직 매기지 않음
 # 원두 목록(beans.csv)의 칸 → 추출 기록(brews.csv)의 칸. 원두를 고르면 이 칸들을 채운다.
 BEAN_TO_BREW = {"name": "bean_name", "roaster": "roaster", "origin": "origin", "process": "process",
                 "roast_level": "roast_level"}
@@ -55,9 +56,6 @@ STYLE = """
 [data-testid="stExpander"] details { border: none; background: #F9FAFB; border-radius: 20px; }
 [data-testid="stExpander"] summary { padding: 18px 22px; }
 [data-testid="stExpander"] summary p { font-size: 16px; font-weight: 600; }
-/* 맛 점수 버튼: 폰 화면(375px)에서도 0~5점 11개가 한 줄에 들어가게 여백을 줄이고, 더 좁으면 다음 줄로 넘긴다 */
-.st-key-taste [role="radiogroup"] { flex-wrap: wrap; gap: 3px; }
-.st-key-taste [role="radiogroup"] button { padding: 4px 7px; }
 
 .dc-eyebrow { font-size: 15px; font-weight: 600; color: #3182F6; margin-bottom: 6px; }
 .dc-title { font-size: 32px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; line-height: 1.3; }
@@ -358,15 +356,17 @@ def saved_grind(brew_id):
 
 
 def taste_inputs(key):
-    """맛 6항목. 처음엔 아무것도 고르지 않은 상태라서, 매기지 않은 항목이 3점으로 저장되는 일이 없다."""
+    """맛 6항목 슬라이더. 맨 왼쪽 '–'(안 매김)에서 시작해서, 매기지 않은 항목이 3점 같은 기본값으로
+    저장되는 일이 없다. 일부만 매기면 저장할 때 기록 함수가 거절한다."""
     scores = {}
-    box = st.container(key="taste")  # 맛 점수 버튼에만 좁은 여백을 주려고 묶는다 (STYLE의 .st-key-taste)
-    for name, label, low in cal.TASTE_ITEMS:  # 기록지와 같은 순서로 한 줄에 한 항목
+    for name, label, low in cal.TASTE_ITEMS:  # 기록지와 같은 순서
         what, scale = TASTE_GUIDE[name]
-        options = [low + 0.5 * j for j in range(int((cal.TASTE_MAX - low) * 2) + 1)]
-        scores[name] = box.pills(
-            f"{label} · {what}", options, format_func=lambda v: f"{v:g}", help=scale, key=key(name)
+        options = [UNRATED] + [low + 0.5 * j for j in range(int((cal.TASTE_MAX - low) * 2) + 1)]
+        value = st.select_slider(
+            f"{label} · {what}", options, value=UNRATED, format_func=lambda v: v if v == UNRATED else f"{v:g}",
+            help=scale, key=key(name),
         )
+        scores[name] = None if value == UNRATED else value
     return scores
 
 
@@ -460,7 +460,8 @@ def log_tab():
     beverage = c2.number_input("음료 무게 (g, 가수 전)", min_value=0.0, step=0.1, format="%.1f", value=None,
                                key=key("beverage"))
 
-    section("맛", "가수한 잔 기준, 0.5 단위예요. 3점을 보통으로 두고 올리거나 내려요. 6항목을 모두 매기거나 모두 비워 두세요.")
+    section("맛", "가수한 잔 기준, 0.5 단위예요. 3점을 보통으로 두고 올리거나 내려요. "
+                  "맨 왼쪽 '–'는 안 매김이에요. 6항목을 모두 매기거나 모두 '–'로 두세요.")
     taste = taste_inputs(key)
     memo = st.text_area("메모", key=key("memo"),
                         placeholder="가수 전/후 차이, 앞 잔과 비교한 느낌, 물 고임. "
