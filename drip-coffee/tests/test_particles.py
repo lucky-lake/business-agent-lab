@@ -142,3 +142,12 @@ def test_specks_below_detection_limit_are_ignored_and_reported():
     m = ga.measure_particles(img, UM_PER_PX)
     assert len(m.diameters_um) == len(parts)
     assert m.min_diameter_um > 60  # 검출 하한을 함께 알려준다
+
+
+def test_thin_diagonal_particle_does_not_stop_the_clump_check():
+    # 10/18 B02 사진(20261018-1 A2)에서 측정을 멈추게 한 입자 모양. 1픽셀 폭으로 비스듬히 이어져서
+    # 윤곽선이 제자리를 되밟고, 볼록 껍질의 점 순서가 뒤집혀 OpenCV가 오류를 냈다.
+    rows = [".......##", "......#..", ".....###.", ".....#...", "...##....",
+            "..###....", "#####....", "####.....", "###......", ".#......."]
+    mask = np.array([[c == "#" for c in row] for row in rows])
+    assert ga._is_clump(mask) in (True, False)

@@ -358,7 +358,9 @@ def _is_clump(mask):
     area = float(np.count_nonzero(mask))
     if area / max(cv2.contourArea(cv2.convexHull(contour)), 1.0) < MIN_SOLIDITY:
         return True
-    hull_idx = cv2.convexHull(contour, returnPoints=False)
+    # 가늘게 비스듬히 이어진 입자는 윤곽선이 제자리를 되밟아서, 볼록 껍질의 점 순서가 한 번 뒤집혀 나올 수 있다.
+    # convexityDefects는 순서가 한 방향이어야 하므로 정렬해서 넘긴다 (10/18 B02 사진에서 멈춘 경우).
+    hull_idx = np.sort(cv2.convexHull(contour, returnPoints=False), axis=0)
     if len(hull_idx) <= 3:
         return False
     defects = cv2.convexityDefects(contour, hull_idx)
