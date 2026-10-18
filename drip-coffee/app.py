@@ -351,11 +351,16 @@ def grind_tab():
 
 
 def clock(seconds):
-    """초를 '2:42'처럼 보여준다."""
+    """초를 '2:42'처럼 보여준다. 빈 값은 '–'."""
     if seconds is None:
-        return ""
+        return "–"
     seconds = int(round(seconds))
     return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def cell(value, form="{:g}"):
+    """표의 한 칸. 빈 값은 'None' 대신 '–'로 보여준다."""
+    return "–" if value is None else form.format(value)
 
 
 def saved_grind(brew_id):
@@ -458,13 +463,13 @@ def recent_brews_table(brews, limit=8):
         {
             "추출번호": b.brew_id,
             "원두": f"{b.bean_id} {b.row.get('bean_name', '')}".strip(),
-            "클릭": b.grinder_clicks,
-            "대표 크기 (µm)": None if b.grind_d50_um is None else round(b.grind_d50_um),
-            "온도 (°C)": f"{b.water_temp_c:g}",
+            "클릭": cell(b.grinder_clicks),
+            "대표 크기 (µm)": cell(b.grind_d50_um, "{:.0f}"),
+            "온도 (°C)": cell(b.water_temp_c),
             "물 빠짐": clock(b.drawdown_end_s),
-            "음료 (g)": b.beverage_g,
-            "만족도": None if b.quality_score is None else round(b.quality_score, 2),
-            "표시": b.flag,
+            "음료 (g)": cell(b.beverage_g),
+            "만족도": cell(b.quality_score, "{:.2f}"),
+            "표시": b.flag or "–",
         }
         for b in reversed(brews[-limit:])
     )
