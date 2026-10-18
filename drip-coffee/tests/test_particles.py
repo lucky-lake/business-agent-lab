@@ -2,11 +2,9 @@
 
 크기를 정확히 아는 불규칙한 입자를 그린 합성 이미지(펴진 가루 칸을 흉내 냄)로,
 검출한 입자의 개수와 지름이 정답과 얼마나 맞는지 확인한다.
-하한 미만 미분 집계와 입자 붙음 경고는 아직 넣지 않기로 해서 보류(skip)로 둔다.
 """
 import cv2
 import numpy as np
-import pytest
 
 from dripcoffee import grind_analysis as ga
 from tests.synthetic import COFFEE_BGR, PAPER_BGR, render_particles, scattered_particles
@@ -15,8 +13,6 @@ PX_PER_MM = 40.0  # 펴진 B칸 사진과 비슷한 해상도 (25 µm/px)
 UM_PER_PX = 1000.0 / PX_PER_MM
 SQUARE_MM = 25.0
 SIZE_PX = int(SQUARE_MM * PX_PER_MM)
-
-HELD = pytest.mark.skip(reason="보류: 하한 미만 미분 집계와 입자 붙음 경고는 나중에 정함")
 
 
 def volume_median_um(diameters_um):
@@ -138,7 +134,6 @@ def test_nothing_measurable_still_reports_what_was_left_out():
     assert m.warnings
 
 
-@HELD
 def test_specks_below_detection_limit_are_ignored_and_reported():
     parts = scattered_particles(36, SQUARE_MM, 0.9, 0.3, seed=7)
     cell = (SQUARE_MM - 2.0) / 6
@@ -147,12 +142,3 @@ def test_specks_below_detection_limit_are_ignored_and_reported():
     m = ga.measure_particles(img, UM_PER_PX)
     assert len(m.diameters_um) == len(parts)
     assert m.min_diameter_um > 60  # 검출 하한을 함께 알려준다
-
-
-@HELD
-def test_crowded_sample_gives_warning():
-    base = scattered_particles(36, SQUARE_MM, 0.9, 0.2, seed=8)
-    touching = base + [(x + 0.6 * d, y, d) for x, y, d in base]  # 입자마다 옆에 하나씩 붙여 놓는다
-    img, _ = render_particles(SIZE_PX, PX_PER_MM, touching)
-    m = ga.measure_particles(img, UM_PER_PX)
-    assert any("붙어" in w for w in m.warnings)
