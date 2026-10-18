@@ -86,7 +86,7 @@ STYLE = """
 
 .dc-rows { margin-top: 4px; }
 .dc-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; font-size: 15px; }
-.dc-row span { color: #6B7684; }
+.dc-row span { color: #6B7684; flex-shrink: 0; white-space: nowrap; }  /* 이름은 줄이 바뀌지 않게 */
 .dc-row b { color: #2A2A2A; font-weight: 600; text-align: right; }
 
 .st-key-taste-title h3 { font-size: 22px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em;
@@ -712,15 +712,16 @@ def grind_input():
     return em.grind_from_d50(d50)
 
 
-def timeline_chart(prediction, recipe):
-    """시간에 따라 나온 음료와 드리퍼에 고인 물. 붓기 시점은 회색 점선, 물줄기가 끊기는 시각은 파란 점선."""
+def timeline_chart(prediction, recipe, actual_end=None):
+    """시간에 따라 나온 음료와 드리퍼에 고인 물. 붓기 시점은 회색 점선, 물줄기가 끊기는 시각은 파란 점선.
+    기록한 잔과 비교할 때는 실제로 끊긴 시각(actual_end)을 진한 회색 점선으로 함께 그린다."""
     t = prediction.timeline
     data = pd.concat([
         pd.DataFrame({"time": t["time_s"], "grams": t["beverage_g"], "what": "나온 음료 (가수 전)"}),
         pd.DataFrame({"time": t["time_s"], "grams": t["free_g"], "what": "드리퍼에 고인 물"}),
     ])
     end = prediction.drawdown_end_s
-    ticks = list(range(0, int(end) + 31, 30))
+    ticks = list(range(0, int(max(end, actual_end or 0)) + 31, 30))
     x = alt.X("time:Q", scale=alt.Scale(domain=[0, ticks[-1]], nice=False),
               axis=alt.Axis(title="시간 (분:초)", values=ticks, grid=False, ticks=False, domainColor="#E5E8EB",
                             labelColor=GRAY, labelFontSize=12, titleColor=GRAY, titleFontSize=13, titleFontWeight=500,
@@ -736,12 +737,17 @@ def timeline_chart(prediction, recipe):
     pour_rules = alt.Chart(pours).mark_rule(color=GRAY_LIGHT, strokeDash=[3, 3]).encode(x=x)
     pour_text = alt.Chart(pours).mark_text(align="left", baseline="top", dx=4, y=4, fontSize=11, color=GRAY, font=FONT).encode(
         x=x, text="label:N")
-    stop = pd.DataFrame({"time": [end], "label": [f"끊김 {clock(end)}"]})
+    stop = pd.DataFrame({"time": [end], "label": [f"{'예측' if actual_end is not None else '끊김'} {clock(end)}"]})
     stop_rule = alt.Chart(stop).mark_rule(color=BRAND, strokeDash=[4, 4]).encode(x=x)
     # 끊김 이름표는 붓기 이름표(맨 위 줄)보다 한 줄 아래에 둔다. 좁은 화면에서 마지막 붓기 이름표와 겹쳐서.
     stop_text = alt.Chart(stop).mark_text(align="right", baseline="top", dx=-4, y=22, fontSize=12, fontWeight=700,
                                           color=BRAND, font=FONT).encode(x=x, text="label:N")
     layers = pour_rules + pour_text + stop_rule + stop_text + lines
+    if actual_end is not None:
+        real = pd.DataFrame({"time": [actual_end], "label": [f"실제 {clock(actual_end)}"]})
+        layers += alt.Chart(real).mark_rule(color=GRAY_DARK, strokeDash=[2, 3]).encode(x=x)
+        layers += alt.Chart(real).mark_text(align="left", baseline="top", dx=4, y=40, fontSize=12, fontWeight=700,
+                                            color=GRAY_DARK, font=FONT).encode(x=x, text="label:N")
     return layers.properties(height=300).configure_view(stroke=None).configure(font=FONT)
 
 
@@ -751,7 +757,105 @@ def predict_tab():
         "굴절계로 잰 값이 아니라 모델로 계산한 값이에요. 식과 근거는 docs/MODEL.md에 있어요.</div>"
     )
     brews = cal.load_brews(BREWS_PATH)
-    previous = brews[-1] if brews else None  # 입력칸 기본값은 마지막으로 기록한 잔의 레시피
+    views = ["새 레시피", "기록한 잔과 비교"]
+    view = st.segmented_control("보기", views, default=views[0], key="predict-view") or views[0]
+    if view == views[1]:
+        compare_view(brews)
+    else:
+        new_recipe_view(brews)
+
+
+def gap(error, actual_text, unit, fewer, more):
+    """예측과 실제의 차이를 말로. error는 예측 − 실제."""
+    if error is None:
+        return "실제 값은 기록하지 않았어요."
+    if abs(error) < 0.5:
+        return f"실제 {actual_text} · 실제와 거의 같아요."
+    return f"실제 {actual_text} · 예측이 {abs(error):.1f}{unit} {fewer if error < 0 else more}.".replace(".0" + unit, unit)
+
+
+def comparison_table(comparisons):
+    table = pd.DataFrame(
+        {
+            "추출번호": c.brew.brew_id,
+            "원두": c.brew.bean_id,
+            "클릭": cell(c.brew.grinder_clicks),
+            "대표 크기 (µm)": f"{c.grind_d50_um:.0f}",
+            "끊김 예측": clock(c.prediction.drawdown_end_s),
+            "끊김 실제": clock(c.brew.drawdown_end_s),
+            "차이 (초)": cell(c.end_error_s, "{:+.0f}"),
+            "음료 예측 (g)": f"{c.prediction.beverage_g:.1f}",
+            "음료 실제 (g)": cell(c.brew.beverage_g),
+            "차이 (g)": cell(c.beverage_error_g, "{:+.1f}"),
+            "표시": c.brew.flag or "–",
+        }
+        for c in reversed(comparisons)
+    )
+    st.dataframe(table, hide_index=True)
+
+
+def error_summary(comparisons):
+    """표시가 없는 잔의 평균 차이. 보정(MODEL.md 5절) 전후를 이 값으로 비교한다."""
+    normal = [c for c in comparisons if not c.brew.flag]
+    lines = []
+    for label, errors, unit in [("끊김 시각", [c.end_error_s for c in normal], "초"),
+                                ("음료 무게", [c.beverage_error_g for c in normal], " g")]:
+        errors = [e for e in errors if e is not None]
+        if errors:
+            mean = sum(errors) / len(errors)
+            size = sum(abs(e) for e in errors) / len(errors)
+            lines.append((f"{label} ({len(errors)}잔)", f"평균 {mean:+.1f}{unit} · 크기 평균 {size:.1f}{unit}"))
+    if lines:
+        html(rows(lines))
+        html('<div class="dc-caption">표시가 없는 잔만 셌어요. \'평균\'은 예측이 한쪽으로 치우친 정도, '
+             "'크기 평균'은 부호를 빼고 얼마나 빗나가는지예요.</div>")
+
+
+def compare_view(brews):
+    """기록한 잔을 같은 레시피·분쇄로 다시 계산해 실제와 나란히 보여준다."""
+    comparisons = cal.compare_with_log(brews)
+    if not comparisons:
+        notice("비교할 기록이 없어요. 분쇄 대표 크기가 있는 잔을 기록하면 여기서 예측과 비교할 수 있어요.")
+        return
+    newest_first = list(reversed(comparisons))
+
+    def label(i):
+        b = newest_first[i].brew
+        return f"{b.brew_id} · {b.bean_id} {cell(b.grinder_clicks)}클릭 · 실제 끊김 {clock(b.drawdown_end_s)}"
+
+    i = st.selectbox("기록한 잔", range(len(newest_first)), format_func=label, key="predict-compare-cup")
+    c = newest_first[i]
+    b, prediction = c.brew, c.prediction
+    html(rows([
+        ("원두", f"{b.bean_id} {b.row.get('bean_name', '')}".strip()),
+        ("분쇄", f"{b.grinder} {cell(b.grinder_clicks)}클릭 · {c.grind_d50_um:.0f} µm"
+                 + (" (같은 원두·클릭 잔의 측정)" if c.borrowed_grind else "")),
+        ("레시피", f"원두 {b.dose_g:g} g · {b.water_temp_c:g} °C · 붓기 {b.pours} · 가수 {b.bypass_g:g} g"),
+    ]))
+    if b.flag:
+        notice(f"'{b.flag}' 표시가 있는 잔이에요. 보정과 아래 평균에서는 빼요.")
+
+    section("예측과 실제", "같은 레시피·분쇄로 모델을 다시 돌린 값이에요. 추출수율과 농도는 굴절계가 없어 실제와 비교할 수 없어요.")
+    html(
+        '<div class="dc-cards">'
+        + card("물줄기가 끊기는 시각 (예측)", clock(prediction.drawdown_end_s), "",
+               gap(c.end_error_s, clock(b.drawdown_end_s), "초", "짧아요", "길어요"))
+        + card("음료 (가수 전, 예측)", f"{prediction.beverage_g:.0f}", "g",
+               gap(c.beverage_error_g, f"{cell(b.beverage_g)} g", " g", "적어요", "많아요"))
+        + card("추출수율 (예측)", f"{prediction.ey_pct:.1f}", "%", "원두 무게 중 음료로 녹아 나온 비율이에요.")
+        + card("농도 (가수 후, 예측)", f"{prediction.tds_cup_pct:.2f}", "%", f"가수 전 {prediction.tds_pct:.2f}%예요.")
+        + "</div>"
+    )
+    st.altair_chart(timeline_chart(prediction, b.recipe(), actual_end=b.drawdown_end_s), width="stretch")
+
+    section("모든 기록과 비교", "차이는 예측 − 실제예요. 음수면 예측이 짧거나 적고, 양수면 길거나 많아요.")
+    comparison_table(comparisons)
+    error_summary(comparisons)
+
+
+def new_recipe_view(brews):
+    """새 레시피를 넣어 예측한다. 입력칸 기본값은 마지막으로 기록한 잔의 레시피."""
+    previous = brews[-1] if brews else None
 
     section("분쇄")
     grind = grind_input()

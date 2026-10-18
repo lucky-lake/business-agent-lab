@@ -1,4 +1,4 @@
-"""추출 기록(data/brews.csv) 읽기·쓰기와 입력 확인.
+"""추출 기록(data/brews.csv) 읽기·쓰기, 입력 확인, 기록과 모델 예측의 비교.
 
 앱의 기록 탭은 append_brew로 새 잔을 저장하고, 보정(MODEL.md 5절)과 내 선호 영역(9.1절)은
 load_brews로 읽은 기록을 쓴다. 측정 방법과 맛 기준은 docs/BREW_PROTOCOL.md를 따른다.
@@ -10,7 +10,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 
 from dripcoffee import DATA_DIR
-from dripcoffee.extraction_model import Recipe, RecipeError, parse_pours
+from dripcoffee.extraction_model import (DEFAULT_PARAMS, Prediction, Recipe, RecipeError, grind_from_d50, parse_pours,
+                                         predict)
 
 BREWS_PATH = DATA_DIR / "brews.csv"
 BEANS_PATH = DATA_DIR / "beans.csv"
@@ -110,6 +111,42 @@ def grind_sizes(brews):
         elif same:
             sizes[b.brew_id] = (sum(same) / len(same), True)
     return sizes
+
+
+@dataclass
+class LogComparison:
+    """기록한 한 잔의 모델 예측과 실제. 차이는 '예측 − 실제'라서, 음수면 예측이 짧거나 적다."""
+
+    brew: Brew
+    grind_d50_um: float  # 예측에 쓴 대표 크기
+    borrowed_grind: bool  # 같은 원두·클릭의 다른 잔에서 빌렸는지
+    prediction: Prediction
+
+    @property
+    def end_error_s(self):
+        actual = self.brew.drawdown_end_s
+        return None if actual is None else self.prediction.drawdown_end_s - actual
+
+    @property
+    def beverage_error_g(self):
+        actual = self.brew.beverage_g
+        return None if actual is None else self.prediction.beverage_g - actual
+
+
+def compare_with_log(brews, params=DEFAULT_PARAMS):
+    """기록한 잔마다 같은 레시피·분쇄로 모델을 돌려 실제(물 빠짐 종료 시각, 음료 무게)와 나란히 둔다.
+
+    보정(MODEL.md 5절) 전후의 오차를 재는 데 쓴다. 표시가 있는 잔도 넣고, 뺄지는 쓰는 쪽이 brew.flag로 정한다.
+    분쇄 크기를 알 수 없는 잔은 뺀다.
+    """
+    sizes = grind_sizes(brews)
+    comparisons = []
+    for b in brews:
+        if b.brew_id not in sizes:
+            continue
+        d50, borrowed = sizes[b.brew_id]
+        comparisons.append(LogComparison(b, d50, borrowed, predict(b.recipe(), grind_from_d50(d50), params)))
+    return comparisons
 
 
 def load_beans(path=BEANS_PATH):
