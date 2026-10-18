@@ -475,6 +475,7 @@ def recent_brews_table(brews, limit=8):
             "물 빠짐": clock(b.drawdown_end_s),
             "음료 (g)": cell(b.beverage_g),
             "만족도": cell(b.quality_score, "{:.2f}"),
+            "필터": b.filter_paper or "–",
             "표시": b.flag or "–",
         }
         for b in reversed(brews[-limit:])
@@ -612,11 +613,17 @@ def log_tab():
     if bean["role"] == "시험":
         notice("시험용 원두예요. 모델을 동결한 뒤 최종 시험에서만 써요 (MODEL.md 6절).")
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     roast_date = c1.text_input("로스팅 날짜", bean["roast_date"], key=key(f"roast-{bean_id}"))
     dripper = c2.text_input("드리퍼", previous.row.get("dripper", "V60") if previous else "V60", key=key("dripper"))
-    grinder = c3.text_input("그라인더", previous.grinder if previous else "메버릭1", key=key("grinder"))
-    clicks = c4.number_input("클릭 수", min_value=0, max_value=180, step=1,
+    # 필터는 장소마다 달라서 지난 잔 값을 미리 채우지 않고 매번 고르게 한다
+    filters = list(dict.fromkeys([*cal.FILTERS, *(b.filter_paper for b in brews if b.filter_paper)]))
+    filter_paper = c3.selectbox("필터", filters, index=None, placeholder="필터를 골라 주세요", accept_new_options=True,
+                                help="종이마다 물 빠지는 속도가 달라질 수 있어요. 목록에 없으면 이름을 적어요.",
+                                key=key("filter"))
+    c1, c2 = st.columns(2)
+    grinder = c1.text_input("그라인더", previous.grinder if previous else "메버릭1", key=key("grinder"))
+    clicks = c2.number_input("클릭 수", min_value=0, max_value=180, step=1,
                              value=previous.grinder_clicks if previous and previous.grinder_clicks is not None else 95,
                              key=key(f"clicks-{bean_id}"))
 
@@ -664,7 +671,8 @@ def log_tab():
             record = {
                 "brew_id": brew_id, "date": brew_date.isoformat(), "bean_id": bean_id,
                 **{brew_col: bean[bean_col] for bean_col, brew_col in BEAN_TO_BREW.items()},
-                "roast_date": roast_date, "dripper": dripper, "grinder": grinder, "grinder_clicks": int(clicks),
+                "roast_date": roast_date, "dripper": dripper, "filter": filter_paper or "",
+                "grinder": grinder, "grinder_clicks": int(clicks),
                 "grind_d50_um": d50 or None, "recipe": recipe_name, "dose_g": dose, "water_temp_c": temp,
                 "pours": pours, "drawdown_end_s": cal.parse_clock(drawdown), "beverage_g": beverage,
                 "bypass_g": bypass, **taste, "memo": memo, "flag": flag,
@@ -787,6 +795,7 @@ def comparison_table(comparisons):
             "음료 예측 (g)": f"{c.prediction.beverage_g:.1f}",
             "음료 실제 (g)": cell(c.brew.beverage_g),
             "차이 (g)": cell(c.beverage_error_g, "{:+.1f}"),
+            "필터": c.brew.filter_paper or "–",
             "표시": c.brew.flag or "–",
         }
         for c in reversed(comparisons)
@@ -831,6 +840,7 @@ def compare_view(brews):
         ("분쇄", f"{b.grinder} {cell(b.grinder_clicks)}클릭 · {c.grind_d50_um:.0f} µm"
                  + (" (같은 원두·클릭 잔의 측정)" if c.borrowed_grind else "")),
         ("레시피", f"원두 {b.dose_g:g} g · {b.water_temp_c:g} °C · 붓기 {b.pours} · 가수 {b.bypass_g:g} g"),
+        ("드리퍼·필터", f"{b.row.get('dripper', '')} · {b.filter_paper or '–'}"),
     ]))
     if b.flag:
         notice(f"'{b.flag}' 표시가 있는 잔이에요. 보정과 아래 평균에서는 빼요.")

@@ -16,6 +16,9 @@ from dripcoffee.extraction_model import (DEFAULT_PARAMS, Prediction, Recipe, Rec
 BREWS_PATH = DATA_DIR / "brews.csv"
 BEANS_PATH = DATA_DIR / "beans.csv"
 
+# 필터 종이. 종이마다 물 빠지는 속도가 다를 수 있어 잔마다 적는다 (10/19). 목록 밖의 필터도 적을 수 있다.
+FILTERS = ("하리오 화이트", "홀츠클로츠 무표백")
+
 # 표시(flag): 정상이 아닌 잔. 표시한 잔은 보정과 선호 영역에서 뺀다.
 FLAGS = ("연습", "흘림", "막힘", "측정실수", "기타")
 
@@ -42,7 +45,7 @@ NUMBER_FIELDS = (
     ("beverage_g", "음료 무게", False),
     ("bypass_g", "가수량", True),
 )
-REQUIRED_FIELDS = (("brew_id", "추출번호"), ("date", "날짜"), ("bean_id", "원두 번호"),
+REQUIRED_FIELDS = (("brew_id", "추출번호"), ("date", "날짜"), ("bean_id", "원두 번호"), ("filter", "필터"),
                    ("dose_g", "원두 무게"), ("water_temp_c", "물 온도"), ("pours", "붓기 기록"))
 
 
@@ -57,6 +60,7 @@ class Brew:
     brew_id: str
     date: str
     bean_id: str
+    filter_paper: str  # 필터 종이 (예: 하리오 화이트)
     grinder: str
     grinder_clicks: int | None
     grind_d50_um: float | None  # 이 잔의 가루로 찍은 사진 측정값. 사진이 없으면 None
@@ -249,6 +253,7 @@ def _brew_from_row(row):
         brew_id=row["brew_id"],
         date=row["date"],
         bean_id=row["bean_id"],
+        filter_paper=row.get("filter", ""),
         grinder=row.get("grinder", ""),
         grinder_clicks=None if clicks is None else int(clicks),
         grind_d50_um=_number(row.get("grind_d50_um", "")),

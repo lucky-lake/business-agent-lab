@@ -13,7 +13,7 @@ from dripcoffee import calibration as cal
 def new_record(**changes):
     record = {
         "brew_id": "20261017-1", "date": "2026-10-17", "bean_id": "B02", "bean_name": "너티 브리즈",
-        "roaster": "루비아", "roast_level": "미디엄", "dripper": "V60", "grinder": "메버릭1",
+        "roaster": "루비아", "roast_level": "미디엄", "dripper": "V60", "filter": "홀츠클로츠 무표백", "grinder": "메버릭1",
         "grinder_clicks": "95", "grind_d50_um": "1255", "dose_g": "20", "water_temp_c": "92",
         "pours": "0:40;30:60;60:60;90:60", "drawdown_end_s": "141", "beverage_g": "180.5", "bypass_g": "80",
         "aroma": "4", "flavor": "4", "acidity": "1", "body": "3.5", "balance": "4", "aftertaste": "3.5",
@@ -40,6 +40,9 @@ def test_existing_log_is_read_with_numbers_flags_and_scores():
     # 만족도 점수 = Aroma, Flavor, Balance, Aftertaste의 평균 (산미·바디는 세기라서 뺀다)
     assert b.quality_score == pytest.approx((4.5 + 3.5 + 4 + 3.5) / 4)
     assert brews["20261012-2"].grind_d50_um is None  # 사진이 없는 잔은 빈칸
+    # 필터: 기숙사(월~수)는 홀츠클로츠 무표백, 본가(목~일)는 하리오 화이트
+    assert brews["20261012-1"].filter_paper == "홀츠클로츠 무표백"
+    assert brews["20261016-1"].filter_paper == "하리오 화이트"
 
 
 def test_new_record_is_appended_and_read_back(brews_copy):
@@ -60,6 +63,7 @@ def test_new_record_is_appended_and_read_back(brews_copy):
     ({"flavor": "3.3"}, "0.5 단위"),
     ({"flag": "망함"}, "표시"),
     ({"dose_g": "0"}, "원두 무게"),
+    ({"filter": ""}, "필터"),  # 필터마다 물 빠짐이 달라질 수 있어 꼭 적는다
 ])
 def test_invalid_records_are_refused_with_a_clear_message(brews_copy, changes, message):
     before = brews_copy.read_text(encoding="utf-8")
