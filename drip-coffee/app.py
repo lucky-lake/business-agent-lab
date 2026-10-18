@@ -18,6 +18,7 @@ import streamlit as st
 from dripcoffee import DATA_DIR, LOCAL_DATA_DIR
 from dripcoffee import calibration as cal
 from dripcoffee import grind_analysis as ga
+from dripcoffee import recommend as rec
 
 PROFILE_DIR = LOCAL_DATA_DIR / "grind_profiles"
 CLICK_TABLE = DATA_DIR / "reference" / "maverick_click_table.csv"
@@ -88,6 +89,9 @@ STYLE = """
 
 .st-key-taste-title h3 { font-size: 22px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em;
                          margin-top: 48px; padding-bottom: 0; }
+.dc-legend { font-size: 13px; color: #4E5968; line-height: 2; margin: -4px 0 8px; }
+.dc-legend span { white-space: nowrap; margin-right: 14px; }  /* 항목 중간에서 줄이 바뀌지 않게 */
+.dc-legend i { font-style: normal; margin-right: 4px; }
 .dc-hexagon { background: #F9FAFB; border-radius: 24px; padding: 16px 12px 20px; text-align: center; }
 .dc-hexagon svg { width: 100%; max-width: 380px; height: auto; }
 .dc-hexagon-score { font-size: 15px; color: #6B7684; margin-top: 4px; }
@@ -476,6 +480,104 @@ def recent_brews_table(brews, limit=8):
     st.dataframe(table, hide_index=True)
 
 
+GOLDEN_CUP_BOX = ((18.0, 22.0), (1.15, 1.35))  # 골든컵 범위: 추출수율 %, 농도 % (MODEL.md 9.1)
+# 선호 영역 그림의 표시: 이름 → (모양, 색, 크기, 속 채움)
+PREFERENCE_MARKS = {"골든컵 중심": ("cross", GRAY, 80, False), "내 선호 중심": ("circle", BRAND, 260, False),
+                    "추천 목표": ("diamond", BRAND, 220, True)}
+# 그림 아래 기호 설명. 기호 모양과 색은 그림과 같게 맞춘다.
+PREFERENCE_LEGEND = '<div class="dc-legend">' + "".join(
+    f'<span><i style="color:{color}">{symbol}</i>{name}</span>'
+    for symbol, color, name in [("●", BRAND, "좋았던 잔"), ("●", GRAY_LIGHT, "중심을 당기지 않은 잔"),
+                                ("◆", BRAND, "추천 목표"), ("○", BRAND, "내 선호 중심"), ("✚", GRAY, "골든컵 중심")]
+) + "</div>"
+
+
+def axis(title):
+    return alt.Axis(title=title, grid=False, ticks=False, domainColor="#E5E8EB", labelColor=GRAY, labelFontSize=12,
+                    titleColor=GRAY, titleFontSize=13, titleFontWeight=500, tickCount=6)
+
+
+def preference_chart(points, target):
+    """잔마다 (추출수율, 가수 후 농도)를 점으로 찍고, 골든컵 범위·내 선호 중심·추천 목표를 함께 그린다.
+
+    좋았던 잔(가중치 > 0)은 파랗게, 점수가 높을수록 진하게 칠하고, 중심을 당기지 않은 잔은 회색으로 둔다.
+    골든컵 중심에서 추천 목표로 점선을 그어, 기록이 목표를 어느 쪽으로 옮겼는지 보이게 한다.
+    """
+    (ey_low, ey_high), (tds_low, tds_high) = GOLDEN_CUP_BOX
+    cups = pd.DataFrame(
+        {
+            "brew_id": p.brew_id, "bean": p.bean_id, "ey": p.ey_pct, "tds": p.tds_cup_pct,
+            "score": round(p.score, 2), "weight": p.weight, "liked": "좋았던 잔" if p.weight > 0 else "중심을 당기지 않은 잔",
+        }
+        for p in points
+    )
+    marks = [(rec.GOLDEN_CUP_CENTER[0], rec.GOLDEN_CUP_CENTER[1], "골든컵 중심"), (target.ey_pct, target.tds_pct, "추천 목표")]
+    if target.personal_center:
+        marks.append((*target.personal_center, "내 선호 중심"))
+    all_ey = [m[0] for m in marks] + list(cups["ey"]) + [ey_low, ey_high]
+    all_tds = [m[1] for m in marks] + list(cups["tds"]) + [tds_low, tds_high]
+    x = alt.X("ey:Q", scale=alt.Scale(domain=[math.floor(min(all_ey)) - 1, math.ceil(max(all_ey)) + 1], nice=False),
+              axis=axis("추출수율 (%) · 모델 추정"))
+    y = alt.Y("tds:Q", scale=alt.Scale(domain=[round(min(all_tds) - 0.05, 2), round(max(all_tds) + 0.05, 2)], nice=False),
+              axis=axis("가수 후 농도 (%) · 모델 추정"))
+
+    box = pd.DataFrame({"ey": [ey_low], "ey2": [ey_high], "tds": [tds_low], "tds2": [tds_high], "label": ["골든컵 범위"]})
+    layers = alt.Chart(box).mark_rect(color="#F2F4F6", cornerRadius=12).encode(x=x, x2="ey2:Q", y=y, y2="tds2:Q")
+    layers += alt.Chart(box).mark_text(align="left", baseline="top", dx=10, dy=10, fontSize=12, color=GRAY, font=FONT).encode(
+        x="ey:Q", y="tds2:Q", text="label:N")
+    move = pd.DataFrame({"ey": [marks[0][0], marks[1][0]], "tds": [marks[0][1], marks[1][1]], "order": [0, 1]})
+    layers += alt.Chart(move).mark_line(color=GRAY_LIGHT, strokeDash=[4, 4], strokeWidth=1.5).encode(x=x, y=y, order="order:Q")
+
+    if not cups.empty:
+        layers += alt.Chart(cups).mark_circle(size=150, stroke="#FFFFFF", strokeWidth=1.5).encode(
+            x=x, y=y,
+            color=alt.Color("liked:N", scale=alt.Scale(domain=["좋았던 잔", "중심을 당기지 않은 잔"], range=[BRAND, GRAY_LIGHT]),
+                            legend=None),
+            opacity=alt.Opacity("weight:Q", scale=alt.Scale(domain=[0, 2.5], range=[0.45, 1]), legend=None),
+            tooltip=[alt.Tooltip("brew_id:N", title="추출번호"), alt.Tooltip("bean:N", title="원두"),
+                     alt.Tooltip("score:Q", title="만족도"), alt.Tooltip("ey:Q", title="추출수율 (%)", format=".1f"),
+                     alt.Tooltip("tds:Q", title="가수 후 농도 (%)", format=".2f")],
+        )
+
+    marks_df = pd.DataFrame(marks, columns=["ey", "tds", "label"])
+    # 이름은 그림 안에 쓰지 않고 아래 기호 설명(PREFERENCE_LEGEND)에 둔다. 폰 화면에서 서로 겹쳐서.
+    for label, (shape, color, size, filled) in PREFERENCE_MARKS.items():
+        one = marks_df[marks_df["label"] == label]
+        if one.empty:
+            continue
+        layers += alt.Chart(one).mark_point(shape=shape, color=color, size=size, filled=filled, strokeWidth=2,
+                                            opacity=1).encode(
+            x=x, y=y, tooltip=[alt.Tooltip("label:N", title="표시"), alt.Tooltip("ey:Q", title="추출수율 (%)", format=".1f"),
+                               alt.Tooltip("tds:Q", title="가수 후 농도 (%)", format=".2f")])
+    return layers.properties(height=360).configure_view(stroke=None).configure(font=FONT)
+
+
+def preference_section(brews):
+    """기록에서 찾은 내 선호 영역과 추천 목표 (MODEL.md 9.1)."""
+    points = rec.brew_points(brews)
+    target = rec.preference_target(points)
+    section("내 선호 영역", "기록한 잔마다 모델로 계산한 위치예요. 굴절계로 잰 값이 아니라 모델 추정값이에요. "
+                          "만족도 2.5를 넘는 잔이 내 선호 중심을 당기고, 추천 목표는 골든컵 중심과 섞어서 정해요. "
+                          "좋았던 잔이 쌓일수록 목표가 내 쪽으로 옮겨 가요.")
+    center = target.personal_center
+    html(
+        '<div class="dc-cards">'
+        + card("추천 목표 추출수율", f"{target.ey_pct:.1f}", "%", "추천 탭은 이 값에 맞는 레시피를 찾아요.", hero=True)
+        + card("추천 목표 농도", f"{target.tds_pct:.2f}", "%", "가수한 뒤의 농도예요.")
+        + card("중심을 당긴 잔", f"{target.n_liked}", "잔",
+               f"내 선호 중심은 {center[0]:.1f}%, {center[1]:.2f}%예요." if center else "아직 없어서 골든컵 중심을 목표로 써요.")
+        + "</div>"
+    )
+    st.altair_chart(preference_chart(points, target), width="stretch")
+    html(PREFERENCE_LEGEND)
+
+    used = {p.brew_id for p in points}
+    skipped = [f"{b.brew_id} {b.flag or ('맛 점수 없음' if b.quality_score is None else '분쇄 크기 없음')}"
+               for b in brews if b.brew_id not in used]
+    if skipped:
+        html(f'<div class="dc-caption">계산에서 뺀 잔: {escape(", ".join(skipped))}</div>')
+
+
 def log_tab():
     html(
         '<div class="dc-lead">한 잔을 내린 뒤 결과를 적어 주세요. 저장하면 추출 기록 끝에 더해지고, '
@@ -576,6 +678,7 @@ def log_tab():
 
     section("최근 기록", f"모두 {len(brews)}잔")
     recent_brews_table(brews)
+    preference_section(brews)
 
 
 st.set_page_config(page_title="Drip Coffee", layout="wide")
