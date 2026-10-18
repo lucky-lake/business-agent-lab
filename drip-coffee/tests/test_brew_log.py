@@ -1,20 +1,13 @@
 """추출 기록(brews.csv) 읽기·쓰기와 입력 확인 테스트.
 
-앱의 기록 탭은 이 함수들로 기록을 저장한다. 기록 함수(dripcoffee/calibration.py)는 다음 커밋에서
-구현하므로, 그 전까지는 실패가 예상된 테스트(xfail)로 둔다.
+앱의 기록 탭은 이 함수들(dripcoffee/calibration.py)로 기록을 저장한다.
 """
 import shutil
 
 import pytest
 
 from dripcoffee import DATA_DIR
-
-try:
-    from dripcoffee import calibration as cal
-except ImportError:  # 구현 전
-    cal = None
-
-pytestmark = pytest.mark.xfail(cal is None, reason="기록 함수는 다음 커밋에서 구현", strict=True)
+from dripcoffee import calibration as cal
 
 
 def new_record(**changes):
