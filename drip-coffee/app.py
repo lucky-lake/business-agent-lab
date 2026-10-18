@@ -17,6 +17,7 @@ import streamlit as st
 
 from dripcoffee import DATA_DIR, LOCAL_DATA_DIR
 from dripcoffee import calibration as cal
+from dripcoffee import extraction_model as em
 from dripcoffee import grind_analysis as ga
 from dripcoffee import recommend as rec
 
@@ -68,6 +69,7 @@ STYLE = """
 .dc-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 20px 0 8px; }
 .dc-card { background: #FFFFFF; border-radius: 24px; padding: 28px 28px 24px;
            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04); animation: dc-rise .5s cubic-bezier(.2, .8, .2, 1) both; }
+.dc-cards.three { grid-template-columns: repeat(3, 1fr); }  /* 큰 카드 하나 + 작은 카드 셋 */
 .dc-card.hero { grid-column: 1 / -1; }
 .dc-card:nth-child(2) { animation-delay: .07s; }
 .dc-card:nth-child(3) { animation-delay: .14s; }
@@ -100,7 +102,7 @@ STYLE = """
 
 @keyframes dc-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .dc-card, .dc-notice { animation: none; } }
-@media (max-width: 640px) { .dc-cards { grid-template-columns: 1fr; } .dc-value { font-size: 40px; } }
+@media (max-width: 640px) { .dc-cards, .dc-cards.three { grid-template-columns: 1fr; } .dc-value { font-size: 40px; } }
 </style>
 """
 
@@ -681,6 +683,116 @@ def log_tab():
     preference_section(brews)
 
 
+def profile_label(record):
+    """저장한 분쇄 측정을 고르는 목록의 한 줄."""
+    brew = record["brew_id"] or "추출번호 없음"
+    saved = record["saved_at"].replace("T", " ")[5:16]
+    return f"{brew} · {record['bean_id']} {record['grinder_clicks']}클릭 · {record['d50_um']:.0f} µm ({saved} 저장)"
+
+
+def grind_input():
+    """예측에 쓸 분쇄도. 저장한 측정은 사진에서 잰 크기 분포를 그대로 쓰고, 대표 크기만 넣으면 분포를 가정한다."""
+    records = ga.load_profiles(PROFILE_DIR)
+    ways = ["저장한 측정", "대표 크기 입력"]
+    way = st.segmented_control("분쇄 넣는 방법", ways, default=ways[0] if records else ways[1], key="predict-grind-way")
+    if way == ways[0] and records:
+        newest_first = list(reversed(records))
+        i = st.selectbox("측정", range(len(newest_first)), format_func=lambda i: profile_label(newest_first[i]),
+                         key="predict-profile")
+        record = newest_first[i]
+        html(f'<div class="dc-caption">사진 {record["n_photos"]}장, 입자 {record["n_particles"]}개에서 잰 크기 분포를 '
+             "그대로 써요.</div>")
+        return em.grind_from_diameters(record["diameters_um"])
+    if way == ways[0]:
+        notice("저장한 분쇄 측정이 없어요. 분쇄도 탭에서 측정을 저장하거나, 대표 크기를 직접 넣어 주세요.")
+    d50 = st.number_input("분쇄 대표 크기 (µm)", min_value=300.0, max_value=3000.0, value=1200.0, step=10.0,
+                          format="%.0f", key="predict-d50")
+    html('<div class="dc-caption">대표 크기만 알 때는 실제 사진 측정과 비슷한 폭의 분포(대부분의 범위가 대표 크기의 '
+         "약 0.67~1.5배)로 가정해요.</div>")
+    return em.grind_from_d50(d50)
+
+
+def timeline_chart(prediction, recipe):
+    """시간에 따라 나온 음료와 드리퍼에 고인 물. 붓기 시점은 회색 점선, 물줄기가 끊기는 시각은 파란 점선."""
+    t = prediction.timeline
+    data = pd.concat([
+        pd.DataFrame({"time": t["time_s"], "grams": t["beverage_g"], "what": "나온 음료 (가수 전)"}),
+        pd.DataFrame({"time": t["time_s"], "grams": t["free_g"], "what": "드리퍼에 고인 물"}),
+    ])
+    end = prediction.drawdown_end_s
+    ticks = list(range(0, int(end) + 31, 30))
+    x = alt.X("time:Q", scale=alt.Scale(domain=[0, ticks[-1]], nice=False),
+              axis=alt.Axis(title="시간 (분:초)", values=ticks, grid=False, ticks=False, domainColor="#E5E8EB",
+                            labelColor=GRAY, labelFontSize=12, titleColor=GRAY, titleFontSize=13, titleFontWeight=500,
+                            labelExpr="floor(datum.value / 60) + ':' + (datum.value % 60 < 10 ? '0' : '') + datum.value % 60"))
+    y = alt.Y("grams:Q", axis=axis("g"))
+    color = alt.Color("what:N", scale=alt.Scale(domain=["나온 음료 (가수 전)", "드리퍼에 고인 물"], range=[BRAND, GRAY_LIGHT]),
+                      legend=alt.Legend(title=None, orient="bottom", labelColor=GRAY_DARK, labelFontSize=12))
+    lines = alt.Chart(data).mark_line(strokeWidth=3).encode(
+        x=x, y=y, color=color,
+        tooltip=[alt.Tooltip("time:Q", title="시간 (초)"), alt.Tooltip("what:N", title="무엇"),
+                 alt.Tooltip("grams:Q", title="g", format=".0f")])
+    pours = pd.DataFrame({"time": [p.start_s for p in recipe.pours], "label": [f"+{p.grams:g} g" for p in recipe.pours]})
+    pour_rules = alt.Chart(pours).mark_rule(color=GRAY_LIGHT, strokeDash=[3, 3]).encode(x=x)
+    pour_text = alt.Chart(pours).mark_text(align="left", baseline="top", dx=4, y=4, fontSize=11, color=GRAY, font=FONT).encode(
+        x=x, text="label:N")
+    stop = pd.DataFrame({"time": [end], "label": [f"끊김 {clock(end)}"]})
+    stop_rule = alt.Chart(stop).mark_rule(color=BRAND, strokeDash=[4, 4]).encode(x=x)
+    # 끊김 이름표는 붓기 이름표(맨 위 줄)보다 한 줄 아래에 둔다. 좁은 화면에서 마지막 붓기 이름표와 겹쳐서.
+    stop_text = alt.Chart(stop).mark_text(align="right", baseline="top", dx=-4, y=22, fontSize=12, fontWeight=700,
+                                          color=BRAND, font=FONT).encode(x=x, text="label:N")
+    layers = pour_rules + pour_text + stop_rule + stop_text + lines
+    return layers.properties(height=300).configure_view(stroke=None).configure(font=FONT)
+
+
+def predict_tab():
+    html(
+        '<div class="dc-lead">분쇄와 레시피를 넣으면 물줄기가 끊기는 시각, 음료 무게, 추출수율, 농도를 미리 계산해요.<br>'
+        "굴절계로 잰 값이 아니라 모델로 계산한 값이에요. 식과 근거는 docs/MODEL.md에 있어요.</div>"
+    )
+    brews = cal.load_brews(BREWS_PATH)
+    previous = brews[-1] if brews else None  # 입력칸 기본값은 마지막으로 기록한 잔의 레시피
+
+    section("분쇄")
+    grind = grind_input()
+
+    section("레시피")
+    c1, c2, c3 = st.columns(3)
+    dose = c1.number_input("원두 무게 (g)", min_value=0.0, step=0.1, format="%.1f",
+                           value=previous.dose_g if previous else 20.0, key="predict-dose")
+    temp = c2.number_input("물 온도 (°C)", min_value=70.0, max_value=100.0, step=1.0, format="%.0f",
+                           value=previous.water_temp_c if previous else 92.0, key="predict-temp")
+    bypass = c3.number_input("가수량 (g)", min_value=0.0, step=1.0, format="%.0f",
+                             value=previous.bypass_g if previous else 0.0, key="predict-bypass")
+    pours_text = st.text_input("붓기 기록 (시작초:g)", previous.pours if previous else "0:40;30:60;60:60;90:60",
+                               help="각 붓기를 시작한 시각(초)과 그 회차에 부은 양(g)을 ;로 이어 적어요. 예: 0:40;30:60;60:60;90:60",
+                               key="predict-pours")
+
+    try:
+        recipe = em.Recipe(dose, temp, em.parse_pours(pours_text), bypass)
+        prediction = em.predict(recipe, grind)
+    except em.RecipeError as error:
+        notice(str(error), error=True)
+        return
+
+    last = recipe.pours[-1]
+    after_last = prediction.drawdown_end_s - (last.start_s + last.grams / em.DEFAULT_PARAMS.pour_rate_g_per_s)
+    section("예측 결과", "보정 전 모델이라 실제와 차이가 날 수 있어요. 기록이 쌓이면 흐름 저항과 머금는 물을 기록에 맞춰요.")
+    html(
+        '<div class="dc-cards three">'
+        + card("물줄기가 끊기는 시각", clock(prediction.drawdown_end_s), "",
+               f"이때 드리퍼를 빼요. 마지막 붓기를 마치고 약 {after_last:.0f}초 뒤예요.", hero=True)
+        + card("음료 (가수 전)", f"{prediction.beverage_g:.0f}", "g",
+               f"부은 물 {recipe.water_g:g} g 중 가루가 약 {prediction.held_liquid_g:.0f} g을 머금고 남아요.")
+        + card("추출수율", f"{prediction.ey_pct:.1f}", "%", "원두 무게 중 음료로 녹아 나온 비율이에요.")
+        + card("농도 (가수 후)", f"{prediction.tds_cup_pct:.2f}", "%",
+               f"가수 전 {prediction.tds_pct:.2f}%에 물 {bypass:g} g을 더한 값이에요.")
+        + "</div>"
+    )
+    st.altair_chart(timeline_chart(prediction, recipe), width="stretch")
+    html('<div class="dc-caption">점선은 붓기를 시작한 시각이에요. 고인 물이 0이 되는 순간을 물줄기가 끊기는 순간으로 봐요.</div>')
+
+
 st.set_page_config(page_title="Drip Coffee", layout="wide")
 html(STYLE)
 html('<div class="dc-eyebrow">Drip Coffee</div><div class="dc-title">핸드드립 추출 분석·추천</div>')
@@ -691,7 +803,7 @@ with tab_grind:
     grind_tab()
 
 with tab_predict:
-    notice("레시피와 분쇄도로 농도, 추출수율, 물 빠짐 시간을 예측하는 화면이에요. (준비 중)")
+    predict_tab()
 
 with tab_recommend:
     notice("목표 농도와 추출수율에 맞는 레시피를 추천하는 화면이에요. (준비 중)")
