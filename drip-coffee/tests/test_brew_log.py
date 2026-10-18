@@ -72,3 +72,35 @@ def test_taste_can_be_left_blank(brews_copy):
     blank = {k: "" for k in ("aroma", "flavor", "acidity", "body", "balance", "aftertaste")}
     cal.append_brew(new_record(**blank), brews_copy)
     assert cal.load_brews(brews_copy)[-1].quality_score is None
+
+
+def test_empty_values_are_saved_blank(brews_copy):
+    # 앱의 빈 숫자 칸은 None으로 넘어온다
+    cal.append_brew(new_record(beverage_g=None, grind_d50_um=None, dose_g=20.0), brews_copy)
+    b = cal.load_brews(brews_copy)[-1]
+    assert b.beverage_g is None and b.grind_d50_um is None
+    assert b.row["dose_g"] == "20" and b.row["brew_water_g"] == "220"  # 부은 물 양은 붓기 합으로 채운다
+
+
+def test_next_brew_id_counts_cups_of_the_same_day():
+    brews = cal.load_brews()
+    assert cal.next_brew_id("2026-10-16", brews) == "20261016-4"
+    assert cal.next_brew_id("2026-10-30", brews) == "20261030-1"
+
+
+@pytest.mark.parametrize("text, seconds", [("2:42", 162), ("162", 162), ("0:58", 58), ("", None)])
+def test_drawdown_time_can_be_written_as_minutes_and_seconds(text, seconds):
+    assert cal.parse_clock(text) == seconds
+
+
+@pytest.mark.parametrize("text", ["2:75", "abc", "-5"])
+def test_unreadable_drawdown_time_is_refused(text):
+    with pytest.raises(cal.BrewLogError, match="물 빠짐 종료 시각"):
+        cal.parse_clock(text)
+
+
+def test_every_logged_bean_is_in_the_bean_list():
+    beans = cal.load_beans()
+    assert {"B01", "B02", "B03", "B05", "B06", "B07", "B08", "S1"} <= set(beans)
+    assert {b.bean_id for b in cal.load_brews()} <= set(beans)
+    assert {row["role"] for row in beans.values()} <= {"학습", "검증", "시험", "여유"}

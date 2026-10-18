@@ -5,6 +5,7 @@
 큰 숫자와 작은 단위·설명, 테두리와 구분선 대신 넓은 여백. 색과 글꼴은 .streamlit/config.toml에 있다.
 실행: streamlit run app.py
 """
+from datetime import date
 from html import escape
 
 import altair as alt
@@ -14,10 +15,12 @@ import pandas as pd
 import streamlit as st
 
 from dripcoffee import DATA_DIR, LOCAL_DATA_DIR
+from dripcoffee import calibration as cal
 from dripcoffee import grind_analysis as ga
 
 PROFILE_DIR = LOCAL_DATA_DIR / "grind_profiles"
 CLICK_TABLE = DATA_DIR / "reference" / "maverick_click_table.csv"
+BREWS_PATH = cal.BREWS_PATH
 
 BRAND = "#3182F6"  # 포인트 컬러는 이것 하나만 쓴다
 TEXT = "#2A2A2A"
@@ -30,6 +33,19 @@ FONT = "Pretendard Variable, sans-serif"
 OUTLINE_COLORS = {"measured": (49, 130, 246), "clump": (139, 149, 161), "border": (139, 149, 161)}
 SIZE_TICKS = [100, 200, 300, 500, 700, 1000, 1500, 2000, 3000]
 
+# 맛 6항목의 설명 (docs/BREW_PROTOCOL.md '맛 기준'과 같다). 이름 옆에는 무엇을 매기는지, 도움말에는 점수 기준.
+TASTE_GUIDE = {
+    "aroma": ("마시기 전에 맡는 향의 만족도", "1 향이 거의 없거나 불쾌함 · 3 무난한 커피 향 · 5 뚜렷하고 좋은 향"),
+    "flavor": ("머금었을 때 맛과 향의 만족도", "1 밍밍하거나 쓴맛·탄 맛이 덮음 · 3 커피다운 맛, 특징은 약함 · 5 선명하고 풍부함"),
+    "acidity": ("산미의 세기", "0 전혀 없음 · 1 거의 안 느껴짐 · 3 적당히 느껴짐 · 5 아주 강함"),
+    "body": ("입안의 무게감·질감의 세기", "0 전혀 없음 · 1 물처럼 가벼움 · 3 저지방 우유 정도 · 5 진한 우유처럼 묵직함"),
+    "balance": ("단맛·산미·쓴맛·바디가 어울리는 정도", "1 한 가지가 튀어 거슬림 · 3 대체로 괜찮지만 한쪽으로 치우침 · 5 잘 어우러짐"),
+    "aftertaste": ("삼키고 5초쯤 뒤 남는 맛의 만족도", "1 금방 사라지거나 떫고 쓴 맛이 남음 · 3 무난하게 남다 사라짐 · 5 좋은 맛이 길게 남음"),
+}
+# 원두 목록(beans.csv)의 칸 → 추출 기록(brews.csv)의 칸. 원두를 고르면 이 칸들을 채운다.
+BEAN_TO_BREW = {"name": "bean_name", "roaster": "roaster", "origin": "origin", "process": "process",
+                "roast_level": "roast_level"}
+
 STYLE = """
 <style>
 .block-container { max-width: 980px; padding-top: 3.5rem; padding-bottom: 6rem; }
@@ -39,6 +55,9 @@ STYLE = """
 [data-testid="stExpander"] details { border: none; background: #F9FAFB; border-radius: 20px; }
 [data-testid="stExpander"] summary { padding: 18px 22px; }
 [data-testid="stExpander"] summary p { font-size: 16px; font-weight: 600; }
+/* 맛 점수 버튼: 폰 화면(375px)에서도 0~5점 11개가 한 줄에 들어가게 여백을 줄이고, 더 좁으면 다음 줄로 넘긴다 */
+.st-key-taste [role="radiogroup"] { flex-wrap: wrap; gap: 3px; }
+.st-key-taste [role="radiogroup"] button { padding: 4px 7px; }
 
 .dc-eyebrow { font-size: 15px; font-weight: 600; color: #3182F6; margin-bottom: 6px; }
 .dc-title { font-size: 32px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; line-height: 1.3; }
@@ -324,6 +343,154 @@ def grind_tab():
     show_saved_profiles()
 
 
+def clock(seconds):
+    """초를 '2:42'처럼 보여준다."""
+    if seconds is None:
+        return ""
+    seconds = int(round(seconds))
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def saved_grind(brew_id):
+    """분쇄도 탭에서 이 추출번호로 저장한 측정 중 가장 최근 것. 없으면 None."""
+    matches = [r for r in ga.load_profiles(PROFILE_DIR) if brew_id and r["brew_id"] == brew_id]
+    return matches[-1] if matches else None
+
+
+def taste_inputs(key):
+    """맛 6항목. 처음엔 아무것도 고르지 않은 상태라서, 매기지 않은 항목이 3점으로 저장되는 일이 없다."""
+    scores = {}
+    box = st.container(key="taste")  # 맛 점수 버튼에만 좁은 여백을 주려고 묶는다 (STYLE의 .st-key-taste)
+    for name, label, low in cal.TASTE_ITEMS:  # 기록지와 같은 순서로 한 줄에 한 항목
+        what, scale = TASTE_GUIDE[name]
+        options = [low + 0.5 * j for j in range(int((cal.TASTE_MAX - low) * 2) + 1)]
+        scores[name] = box.pills(
+            f"{label} · {what}", options, format_func=lambda v: f"{v:g}", help=scale, key=key(name)
+        )
+    return scores
+
+
+def recent_brews_table(brews, limit=8):
+    table = pd.DataFrame(
+        {
+            "추출번호": b.brew_id,
+            "원두": f"{b.bean_id} {b.row.get('bean_name', '')}".strip(),
+            "클릭": b.grinder_clicks,
+            "대표 크기 (µm)": None if b.grind_d50_um is None else round(b.grind_d50_um),
+            "온도 (°C)": f"{b.water_temp_c:g}",
+            "물 빠짐": clock(b.drawdown_end_s),
+            "음료 (g)": b.beverage_g,
+            "만족도": None if b.quality_score is None else round(b.quality_score, 2),
+            "표시": b.flag,
+        }
+        for b in reversed(brews[-limit:])
+    )
+    st.dataframe(table, hide_index=True)
+
+
+def log_tab():
+    html(
+        '<div class="dc-lead">한 잔을 내린 뒤 결과를 적어 주세요. 저장하면 추출 기록 끝에 더해지고, '
+        "모델 보정과 내 선호 영역 계산에 쓰여요.<br>측정 방법과 맛 기준은 docs/BREW_PROTOCOL.md와 같아요.</div>"
+    )
+    saved = st.session_state.pop("log_saved", None)
+    if saved:
+        notice(saved)
+
+    brews = cal.load_brews(BREWS_PATH)
+    beans = cal.load_beans()
+    form = st.session_state.setdefault("log_form", 0)  # 저장할 때마다 올려서 입력칸을 새로 만든다
+
+    def key(name):
+        return f"log-{form}-{name}"
+
+    section("잔 정보")
+    c1, c2, c3 = st.columns(3)
+    brew_date = c1.date_input("날짜", value=date.today(), key=key("date"))
+    brew_id = c2.text_input("추출번호", cal.next_brew_id(brew_date.isoformat(), brews), key=key(f"id-{brew_date}"))
+    bean_ids = list(beans)
+    last_bean = brews[-1].bean_id if brews and brews[-1].bean_id in beans else bean_ids[0]
+    bean_id = c3.selectbox(
+        "원두", bean_ids, index=bean_ids.index(last_bean),
+        format_func=lambda b: f"{b} {beans[b]['name']} ({beans[b]['role']})", key=key("bean"),
+    )
+    bean = beans[bean_id]
+    same_bean = [b for b in brews if b.bean_id == bean_id]
+    previous = same_bean[-1] if same_bean else (brews[-1] if brews else None)  # 입력칸 기본값은 지난 잔
+    if bean["role"] == "시험":
+        notice("시험용 원두예요. 모델을 동결한 뒤 최종 시험에서만 써요 (MODEL.md 6절).")
+
+    c1, c2, c3, c4 = st.columns(4)
+    roast_date = c1.text_input("로스팅 날짜", bean["roast_date"], key=key(f"roast-{bean_id}"))
+    dripper = c2.text_input("드리퍼", previous.row.get("dripper", "V60") if previous else "V60", key=key("dripper"))
+    grinder = c3.text_input("그라인더", previous.grinder if previous else "메버릭1", key=key("grinder"))
+    clicks = c4.number_input("클릭 수", min_value=0, max_value=180, step=1,
+                             value=previous.grinder_clicks if previous and previous.grinder_clicks is not None else 95,
+                             key=key(f"clicks-{bean_id}"))
+
+    grind = saved_grind(brew_id)
+    d50 = st.number_input("분쇄 대표 크기 (µm, 선택)", min_value=0.0, step=1.0, format="%.0f",
+                          value=float(round(grind["d50_um"])) if grind else None, key=key(f"d50-{brew_id}"))
+    if grind:
+        html(f'<div class="dc-caption">분쇄도 탭에서 이 추출번호로 저장한 측정을 불러왔어요 '
+             f"(사진 {grind['n_photos']}장, {grind['grinder_clicks']}클릭).</div>")
+    else:
+        html('<div class="dc-caption">이 추출번호로 저장한 분쇄 측정이 없어요. 비워 두면 같은 원두·같은 클릭으로 간 '
+             "다른 잔의 값을 빌려 써요.</div>")
+
+    section("레시피")
+    c1, c2, c3 = st.columns(3)
+    dose = c1.number_input("원두 무게 (g)", min_value=0.0, step=0.1, format="%.1f",
+                           value=previous.dose_g if previous else 20.0, key=key(f"dose-{bean_id}"))
+    temp = c2.number_input("물 온도 (°C)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f",
+                           value=previous.water_temp_c if previous else 92.0, key=key(f"temp-{bean_id}"))
+    bypass = c3.number_input("가수량 (g)", min_value=0.0, step=1.0, format="%.0f",
+                             value=previous.bypass_g if previous else 0.0, key=key(f"bypass-{bean_id}"))
+    c1, c2 = st.columns([2, 1])
+    pours = c1.text_input("붓기 기록 (시작초:g)", previous.pours if previous else "0:40;30:60;60:60;90:60",
+                          help="각 붓기를 시작한 시각(초)과 그 회차에 부은 양(g)을 ;로 이어 적어요. 예: 0:40;30:60;60:60;90:60",
+                          key=key(f"pours-{bean_id}"))
+    recipe_name = c2.text_input("레시피 이름 (선택)", previous.row.get("recipe", "") if previous else "",
+                                key=key(f"recipe-{bean_id}"))
+
+    section("결과", "드리퍼를 뺀 시각과, 가수하기 전에 잰 음료 무게예요.")
+    c1, c2 = st.columns(2)
+    drawdown = c1.text_input("물 빠짐 종료 시각", placeholder="예: 2:42", key=key("drawdown"),
+                             help="물줄기가 끊기고 방울로 바뀌어 드리퍼를 뺀 순간이에요. 분:초나 초로 적어요.")
+    beverage = c2.number_input("음료 무게 (g, 가수 전)", min_value=0.0, step=0.1, format="%.1f", value=None,
+                               key=key("beverage"))
+
+    section("맛", "가수한 잔 기준, 0.5 단위예요. 3점을 보통으로 두고 올리거나 내려요. 6항목을 모두 매기거나 모두 비워 두세요.")
+    taste = taste_inputs(key)
+    memo = st.text_area("메모", key=key("memo"),
+                        placeholder="가수 전/후 차이, 앞 잔과 비교한 느낌, 물 고임. "
+                                    "쓰는 말: 시큼함, 밍밍함, 떫음, 쓴맛 강함, 탄 맛, 단맛 좋음")
+    flag = st.selectbox("표시", ["", *cal.FLAGS], format_func=lambda f: f or "없음 (정상)", key=key("flag"),
+                        help="정상이 아닌 잔에 표시하면 보정과 내 선호 영역에서 빠져요.")
+
+    if st.button("이 잔 저장하기", type="primary", width="stretch"):
+        try:
+            record = {
+                "brew_id": brew_id, "date": brew_date.isoformat(), "bean_id": bean_id,
+                **{brew_col: bean[bean_col] for bean_col, brew_col in BEAN_TO_BREW.items()},
+                "roast_date": roast_date, "dripper": dripper, "grinder": grinder, "grinder_clicks": int(clicks),
+                "grind_d50_um": d50 or None, "recipe": recipe_name, "dose_g": dose, "water_temp_c": temp,
+                "pours": pours, "drawdown_end_s": cal.parse_clock(drawdown), "beverage_g": beverage,
+                "bypass_g": bypass, **taste, "memo": memo, "flag": flag,
+            }
+            cal.append_brew(record, BREWS_PATH)
+        except cal.BrewLogError as error:
+            notice(str(error), error=True)
+        else:
+            score = cal.load_brews(BREWS_PATH)[-1].quality_score
+            st.session_state["log_saved"] = f"저장했어요: {brew_id}" + (f" · 만족도 {score:.2f}" if score else "")
+            st.session_state["log_form"] = form + 1
+            st.rerun()
+
+    section("최근 기록", f"모두 {len(brews)}잔")
+    recent_brews_table(brews)
+
+
 st.set_page_config(page_title="Drip Coffee", layout="wide")
 html(STYLE)
 html('<div class="dc-eyebrow">Drip Coffee</div><div class="dc-title">핸드드립 추출 분석·추천</div>')
@@ -340,4 +507,4 @@ with tab_recommend:
     notice("목표 농도와 추출수율에 맞는 레시피를 추천하는 화면이에요. (준비 중)")
 
 with tab_log:
-    notice("실제 추출 결과를 기록하고 예측과 비교해 모델을 보정하는 화면이에요. (준비 중)")
+    log_tab()

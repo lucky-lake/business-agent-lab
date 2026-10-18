@@ -5,12 +5,14 @@ load_brews로 읽은 기록을 쓴다. 측정 방법과 맛 기준은 docs/BREW_
 """
 import csv
 import math
+import re
 from dataclasses import dataclass, field
 
 from dripcoffee import DATA_DIR
 from dripcoffee.extraction_model import Recipe, RecipeError, parse_pours
 
 BREWS_PATH = DATA_DIR / "brews.csv"
+BEANS_PATH = DATA_DIR / "beans.csv"
 
 # 표시(flag): 정상이 아닌 잔. 표시한 잔은 보정과 선호 영역에서 뺀다.
 FLAGS = ("연습", "흘림", "막힘", "측정실수", "기타")
@@ -83,6 +85,33 @@ def load_brews(path=BREWS_PATH):
     """추출 기록을 기록한 순서대로 읽는다."""
     with open(path, encoding="utf-8", newline="") as f:
         return [_brew_from_row(row) for row in csv.DictReader(f)]
+
+
+def load_beans(path=BEANS_PATH):
+    """원두 목록을 {원두 번호: 칸 dict}로 읽는다. 순서는 파일에 적은 순서."""
+    with open(path, encoding="utf-8", newline="") as f:
+        return {row["bean_id"]: row for row in csv.DictReader(f)}
+
+
+def next_brew_id(date, brews):
+    """그날의 다음 추출번호. 예: 2026-10-16에 이미 세 잔이 있으면 '20261016-4'."""
+    day = str(date).replace("-", "")
+    taken = [int(b.brew_id.rsplit("-", 1)[1]) for b in brews if re.fullmatch(rf"{day}-\d+", b.brew_id)]
+    return f"{day}-{max(taken, default=0) + 1}"
+
+
+def parse_clock(text):
+    """'2:42'(분:초)나 '162'(초)를 초로 읽는다. 비어 있으면 None."""
+    text = str(text).strip()
+    if not text:
+        return None
+    match = re.fullmatch(r"(\d+):([0-5]\d)", text)
+    if match:
+        return int(match.group(1)) * 60 + int(match.group(2))
+    seconds = _number(text)
+    if seconds is None or seconds <= 0:
+        raise BrewLogError(f"물 빠짐 종료 시각은 2:42(분:초)나 162(초)처럼 적어 주세요: '{text}'")
+    return seconds
 
 
 def append_brew(record, path=BREWS_PATH):
@@ -184,7 +213,9 @@ def _number(text):
 
 
 def _text(value):
-    """저장할 칸의 글자. 숫자는 20.0이 아니라 20처럼 짧게 적는다."""
+    """저장할 칸의 글자. 빈 값(None)은 빈칸으로, 숫자는 20.0이 아니라 20처럼 짧게 적는다."""
+    if value is None:
+        return ""
     if isinstance(value, float):
         return f"{value:g}"
     return str(value).strip()
