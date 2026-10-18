@@ -1,18 +1,12 @@
 """내 선호 영역(추천 목표) 계산 테스트. 설계는 docs/MODEL.md 9.1.
 
 잔마다 모델로 (추출수율, 가수 후 농도) 위치를 계산하고, 맛 점수로 가중한 '내 선호 중심'을
-골든컵 중심과 섞어 추천 목표를 정한다. 계산 함수(dripcoffee/recommend.py)는 다음 커밋에서
-구현하므로, 그 전까지는 실패가 예상된 테스트(xfail)로 둔다.
+골든컵 중심과 섞어 추천 목표를 정한다 (dripcoffee/recommend.py).
 """
 import pytest
 
-try:
-    from dripcoffee import calibration as cal
-    from dripcoffee import recommend as rec
-except ImportError:  # 구현 전
-    cal = rec = None
-
-pytestmark = pytest.mark.xfail(rec is None, reason="선호 영역 계산은 다음 커밋에서 구현", strict=True)
+from dripcoffee import calibration as cal
+from dripcoffee import recommend as rec
 
 
 def point(ey, tds, score, brew_id="x"):
