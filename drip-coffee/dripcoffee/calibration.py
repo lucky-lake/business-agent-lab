@@ -6,6 +6,7 @@ load_brews로 읽은 기록을 쓴다. 측정 방법과 맛 기준은 docs/BREW_
 import csv
 import math
 import re
+from collections import defaultdict
 from dataclasses import dataclass, field
 
 from dripcoffee import DATA_DIR
@@ -85,6 +86,30 @@ def load_brews(path=BREWS_PATH):
     """추출 기록을 기록한 순서대로 읽는다."""
     with open(path, encoding="utf-8", newline="") as f:
         return [_brew_from_row(row) for row in csv.DictReader(f)]
+
+
+def grind_sizes(brews):
+    """잔마다 계산에 쓸 분쇄 대표 크기. {추출번호: (크기 µm, 빌렸는지)}.
+
+    사진이 없는 잔은 같은 봉투(원두와 로스팅 날짜)·같은 그라인더·같은 클릭으로 간 다른 잔의 측정값 평균을
+    빌려 쓴다. 같은 원두라도 봉투가 바뀌면 같은 클릭에서 크기가 달라질 수 있어서다(10/18 B02: 1255 → 1044 µm).
+    표시가 있는 잔이어도 분쇄 측정은 맞으므로 빌려 줄 수 있다. 빌릴 값도 없는 잔은 넣지 않는다.
+    """
+    def same_bag(b):
+        return b.bean_id, b.row.get("roast_date", ""), b.grinder, b.grinder_clicks
+
+    measured = defaultdict(list)
+    for b in brews:
+        if b.grind_d50_um is not None:
+            measured[same_bag(b)].append(b.grind_d50_um)
+    sizes = {}
+    for b in brews:
+        same = measured.get(same_bag(b))
+        if b.grind_d50_um is not None:
+            sizes[b.brew_id] = (b.grind_d50_um, False)
+        elif same:
+            sizes[b.brew_id] = (sum(same) / len(same), True)
+    return sizes
 
 
 def load_beans(path=BEANS_PATH):

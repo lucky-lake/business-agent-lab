@@ -4,9 +4,9 @@
 시작해, 맛 점수가 좋았던 잔의 위치(추출수율, 가수 후 농도) 쪽으로 목표를 옮겨 간다.
 잔의 위치는 굴절계로 잰 값이 아니라 모델 추정값이다.
 """
-from collections import defaultdict
 from dataclasses import dataclass
 
+from dripcoffee.calibration import grind_sizes
 from dripcoffee.extraction_model import DEFAULT_PARAMS, grind_from_d50, predict
 
 GOLDEN_CUP_CENTER = (20.0, 1.25)  # 추출수율 %, 농도 % (골든컵 범위 18–22%, 1.15–1.35%의 가운데)
@@ -55,25 +55,14 @@ def brew_points(brews, params=DEFAULT_PARAMS):
 
     위치는 기록한 레시피와 분쇄 대표 크기로 모델이 예측한 값이다. 실제로 잰 물 빠짐 시각이나 음료 무게를
     섞지 않아야, 추천이 후보 레시피를 같은 모델로 계산해 목표와 비교할 수 있다.
-    사진이 없는 잔은 같은 원두·같은 그라인더·같은 클릭으로 간 다른 잔의 측정값 평균을 빌려 쓰고,
-    빌릴 값도 없으면 뺀다.
+    사진이 없는 잔은 같은 원두·클릭의 측정값을 빌려 쓰고(calibration.grind_sizes), 빌릴 값도 없으면 뺀다.
     """
-    measured = defaultdict(list)
-    for b in brews:  # 표시가 있는 잔이어도 분쇄 측정은 쓸 수 있다
-        if b.grind_d50_um is not None:
-            measured[(b.bean_id, b.grinder, b.grinder_clicks)].append(b.grind_d50_um)
-
+    sizes = grind_sizes(brews)
     points = []
     for b in brews:
         score = b.quality_score
-        if b.flag or score is None:
+        if b.flag or score is None or b.brew_id not in sizes:
             continue
-        d50 = b.grind_d50_um
-        if d50 is None:
-            same = measured.get((b.bean_id, b.grinder, b.grinder_clicks))
-            if not same:
-                continue
-            d50 = sum(same) / len(same)
-        prediction = predict(b.recipe(), grind_from_d50(d50), params)
+        prediction = predict(b.recipe(), grind_from_d50(sizes[b.brew_id][0]), params)
         points.append(BrewPoint(b.brew_id, b.bean_id, prediction.ey_pct, prediction.tds_cup_pct, score))
     return points

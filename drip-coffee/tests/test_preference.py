@@ -56,3 +56,10 @@ def test_cups_without_taste_scores_are_left_out():
     for b in brews:
         b.taste = {k: None for k in b.taste}
     assert rec.brew_points(brews) == []
+
+
+def test_borrowed_grind_size_comes_from_the_same_bag():
+    # 20261012-2(옛 봉투, 사진 없음)는 같은 봉투 20261012-1의 1255 µm를 빌린다.
+    # 같은 95클릭이어도 새 봉투 잔 20261018-1의 1044 µm는 섞지 않는다
+    size, borrowed = cal.grind_sizes(cal.load_brews())["20261012-2"]
+    assert borrowed and size == pytest.approx(1255)
