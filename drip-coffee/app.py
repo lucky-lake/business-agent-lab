@@ -5,6 +5,7 @@
 큰 숫자와 작은 단위·설명, 테두리와 구분선 대신 넓은 여백. 색과 글꼴은 .streamlit/config.toml에 있다.
 실행: streamlit run app.py
 """
+import math
 from datetime import date
 from html import escape
 
@@ -33,7 +34,7 @@ FONT = "Pretendard Variable, sans-serif"
 OUTLINE_COLORS = {"measured": (49, 130, 246), "clump": (139, 149, 161), "border": (139, 149, 161)}
 SIZE_TICKS = [100, 200, 300, 500, 700, 1000, 1500, 2000, 3000]
 
-# 맛 6항목의 설명 (docs/BREW_PROTOCOL.md '맛 기준'과 같다). 이름 옆에는 무엇을 매기는지, 도움말에는 점수 기준.
+# 맛 6항목의 설명 (docs/BREW_PROTOCOL.md '맛 기준'과 같다). 무엇을 매기는지, 점수 기준.
 TASTE_GUIDE = {
     "aroma": ("마시기 전에 맡는 향의 만족도", "1 향이 거의 없거나 불쾌함 · 3 무난한 커피 향 · 5 뚜렷하고 좋은 향"),
     "flavor": ("머금었을 때 맛과 향의 만족도", "1 밍밍하거나 쓴맛·탄 맛이 덮음 · 3 커피다운 맛, 특징은 약함 · 5 선명하고 풍부함"),
@@ -42,7 +43,7 @@ TASTE_GUIDE = {
     "balance": ("단맛·산미·쓴맛·바디가 어울리는 정도", "1 한 가지가 튀어 거슬림 · 3 대체로 괜찮지만 한쪽으로 치우침 · 5 잘 어우러짐"),
     "aftertaste": ("삼키고 5초쯤 뒤 남는 맛의 만족도", "1 금방 사라지거나 떫고 쓴 맛이 남음 · 3 무난하게 남다 사라짐 · 5 좋은 맛이 길게 남음"),
 }
-UNRATED = "–"  # 맛 슬라이더의 맨 왼쪽 칸: 아직 매기지 않음
+UNRATED = "–"  # 아직 매기지 않은 맛 항목
 # 원두 목록(beans.csv)의 칸 → 추출 기록(brews.csv)의 칸. 원두를 고르면 이 칸들을 채운다.
 BEAN_TO_BREW = {"name": "bean_name", "roaster": "roaster", "origin": "origin", "process": "process",
                 "roast_level": "roast_level"}
@@ -84,6 +85,14 @@ STYLE = """
 .dc-row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; font-size: 15px; }
 .dc-row span { color: #6B7684; }
 .dc-row b { color: #2A2A2A; font-weight: 600; text-align: right; }
+
+.st-key-taste-title h3 { font-size: 22px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em;
+                         margin-top: 48px; padding-bottom: 0; }
+.dc-hexagon { background: #F9FAFB; border-radius: 24px; padding: 16px 12px 20px; text-align: center; }
+.dc-hexagon svg { width: 100%; max-width: 380px; height: auto; }
+.dc-hexagon-score { font-size: 15px; color: #6B7684; margin-top: 4px; }
+.dc-hexagon-score b { font-size: 24px; font-weight: 700; color: #3182F6; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.dc-hexagon .dc-caption { margin: 6px 16px 0; }
 
 @keyframes dc-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .dc-card, .dc-notice { animation: none; } }
@@ -355,18 +364,92 @@ def saved_grind(brew_id):
     return matches[-1] if matches else None
 
 
+def mark_touched(flag):
+    st.session_state[flag] = True
+
+
 def taste_inputs(key):
-    """맛 6항목 슬라이더. 맨 왼쪽 '–'(안 매김)에서 시작해서, 매기지 않은 항목이 3점 같은 기본값으로
-    저장되는 일이 없다. 일부만 매기면 저장할 때 기록 함수가 거절한다."""
+    """맛 6항목 슬라이더. 맨 왼쪽(산미·바디 0점, 나머지 1점)에서 시작하지만, 한 번 움직이기 전까지는 '–'(안 매김)로
+    보이고 점수로 치지 않는다. 그래서 매기지 않은 항목이 맨 왼쪽 점수로 저장되는 일이 없다.
+    일부만 매기면 저장할 때 기록 함수가 거절한다."""
     scores = {}
     for name, label, low in cal.TASTE_ITEMS:  # 기록지와 같은 순서
-        what, scale = TASTE_GUIDE[name]
-        options = [UNRATED] + [low + 0.5 * j for j in range(int((cal.TASTE_MAX - low) * 2) + 1)]
+        flag = key(f"{name}-touched")  # 움직이면 콜백이 켠다. 저장하면 key가 바뀌어 다시 꺼진 상태로 시작한다
+        rated = st.session_state.get(flag, False)
+        options = [low + 0.5 * j for j in range(int((cal.TASTE_MAX - low) * 2) + 1)]
         value = st.select_slider(
-            f"{label} · {what}", options, value=UNRATED, format_func=lambda v: v if v == UNRATED else f"{v:g}",
-            help=scale, key=key(name),
+            f"{label} · {TASTE_GUIDE[name][0]}", options, value=low,
+            format_func=lambda v, rated=rated, low=low: UNRATED if not rated and v == low else f"{v:g}",
+            key=key(name), on_change=mark_touched, args=(flag,),
         )
-        scores[name] = None if value == UNRATED else value
+        scores[name] = value if rated else None
+    return scores
+
+
+def taste_hexagon(scores):
+    """맛 점수 육각형(SVG). 기록지 순서로 맨 위 Aroma부터 시계 방향으로 돈다.
+
+    매긴 항목은 점으로 찍고, 6항목을 다 매기면 면을 칠한다. 산미·바디는 좋고 나쁨이 아니라 세기라서
+    이름을 회색으로 낮추고 '세기'를 붙인다. 그래야 육각형이 클수록 좋은 잔이라고 읽지 않는다.
+    """
+    width, height, cx, cy, radius = 360, 300, 180, 150, 90
+
+    def at(i, value):
+        angle = math.radians(-90 + 60 * i)
+        r = radius * value / cal.TASTE_MAX
+        return cx + r * math.cos(angle), cy + r * math.sin(angle)
+
+    def hexagon(value):
+        return " ".join(f"{x:.1f},{y:.1f}" for x, y in (at(i, value) for i in range(6)))
+
+    parts = [f'<polygon points="{hexagon(5)}" fill="#FFFFFF"/>']
+    parts += [f'<polygon points="{hexagon(level)}" fill="none" stroke="#E5E8EB" stroke-width="1"/>' for level in range(1, 6)]
+    parts += [f'<line x1="{cx}" y1="{cy}" x2="{x:.1f}" y2="{y:.1f}" stroke="#E5E8EB" stroke-width="1"/>'
+              for x, y in (at(i, 5) for i in range(6))]
+
+    values = [scores.get(name) for name, _, _ in cal.TASTE_ITEMS]
+    if all(v is not None for v in values):
+        points = " ".join(f"{x:.1f},{y:.1f}" for x, y in (at(i, v) for i, v in enumerate(values)))
+        parts.append(f'<polygon points="{points}" fill="{BRAND}" fill-opacity="0.15" stroke="{BRAND}" '
+                     'stroke-width="2" stroke-linejoin="round"/>')
+    parts += [f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="{BRAND}"/>'
+              for x, y in (at(i, v) for i, v in enumerate(values) if v is not None)]
+
+    for i, ((name, label, low), value) in enumerate(zip(cal.TASTE_ITEMS, values)):
+        x, y = at(i, 5 * (radius + 22) / radius)
+        dx = x - cx
+        anchor = "start" if dx > 1 else "end" if dx < -1 else "middle"
+        name_y = y - 14 if y < cy - radius else y + 10 if y > cy + radius else y - 2  # 위·아래·옆 자리
+        intensity = low == 0  # 산미·바디
+        name_text = f"{label} · 세기" if intensity else label
+        parts.append(f'<text x="{x:.1f}" y="{name_y:.1f}" text-anchor="{anchor}" font-size="14" font-weight="600" '
+                     f'fill="{GRAY if intensity else GRAY_DARK}">{escape(name_text)}</text>')
+        shown, color = (UNRATED, GRAY_LIGHT) if value is None else (f"{value:g}", BRAND)
+        parts.append(f'<text x="{x:.1f}" y="{name_y + 19:.1f}" text-anchor="{anchor}" font-size="17" '
+                     f'font-weight="700" fill="{color}">{shown}</text>')
+
+    quality = [scores.get(name) for name in cal.QUALITY_ITEMS]
+    score = f"{sum(quality) / len(quality):.2f}" if all(v is not None for v in quality) else UNRATED
+    svg = (f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" '
+           f'font-family="{FONT}" role="img" aria-label="맛 점수 육각형">{"".join(parts)}</svg>')
+    return (f'<div class="dc-hexagon">{svg}<div class="dc-hexagon-score">만족도<b>{score}</b></div>'
+            '<div class="dc-caption">Aroma, Flavor, Balance, Aftertaste의 평균이에요. '
+            "산미·바디는 세기라서 클수록 좋은 게 아니에요.</div></div>")
+
+
+def taste_section(key):
+    """맛 입력: 왼쪽 슬라이더로 매기면 오른쪽 육각형이 바로 따라 그려진다. 점수 기준은 제목 옆 '?' 하나에 모은다."""
+    guide = "\n".join(f"- **{label}** ({TASTE_GUIDE[name][0]}): {TASTE_GUIDE[name][1]}"
+                      for name, label, _ in cal.TASTE_ITEMS)
+    st.container(key="taste-title").subheader("맛", help=guide, anchor=False)
+    html('<div class="dc-caption">가수한 잔 기준, 0.5 단위예요. 3점을 보통으로 두고 올리거나 내려요. '
+         "움직이기 전에는 '–'(안 매김)로 보여요. 맨 왼쪽 점수(0점이나 1점)를 주려면 한 번 움직였다가 돌려놓으세요. "
+         "6항목을 모두 매기거나 모두 '–'로 두세요.</div>")
+    left, right = st.columns(2, gap="large")
+    with left:
+        scores = taste_inputs(key)
+    with right:
+        st.markdown(taste_hexagon(scores), unsafe_allow_html=True)  # st.html은 SVG를 지워서 markdown으로 넣는다
     return scores
 
 
@@ -460,9 +543,7 @@ def log_tab():
     beverage = c2.number_input("음료 무게 (g, 가수 전)", min_value=0.0, step=0.1, format="%.1f", value=None,
                                key=key("beverage"))
 
-    section("맛", "가수한 잔 기준, 0.5 단위예요. 3점을 보통으로 두고 올리거나 내려요. "
-                  "맨 왼쪽 '–'는 안 매김이에요. 6항목을 모두 매기거나 모두 '–'로 두세요.")
-    taste = taste_inputs(key)
+    taste = taste_section(key)
     memo = st.text_area("메모", key=key("memo"),
                         placeholder="가수 전/후 차이, 앞 잔과 비교한 느낌, 물 고임. "
                                     "쓰는 말: 시큼함, 밍밍함, 떫음, 쓴맛 강함, 탄 맛, 단맛 좋음")
