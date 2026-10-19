@@ -12,8 +12,8 @@ from dripcoffee import calibration as cal
 from dripcoffee import recommend as rec
 
 
-def point(ey, tds, score, brew_id="x"):
-    return rec.BrewPoint(brew_id=brew_id, bean_id="B02", ey_pct=ey, tds_cup_pct=tds, score=score)
+def point(ey, tds, score, brew_id="x", strength=""):
+    return rec.BrewPoint(brew_id=brew_id, bean_id="B02", ey_pct=ey, tds_cup_pct=tds, score=score, strength=strength)
 
 
 def test_without_liked_cups_the_target_is_the_golden_cup():
@@ -30,6 +30,32 @@ def test_better_cups_pull_harder():
     target = rec.preference_target([point(16, 1.2, 4.0), point(22, 1.4, 3.0)])
     center_ey = (16 * 1.5 + 22 * 0.5) / 2.0
     assert target.personal_center[0] == pytest.approx(center_ey)
+
+
+def test_strength_answer_sets_the_target_concentration():
+    # 목표 농도는 진하기 답으로 정한다. '진했어요'는 그 잔보다 10% 묽게, '연했어요'는 10% 진하게.
+    # 골든컵을 섞지 않아 한 번 답하면 바로 바뀐다. 목표 추출수율과 내 선호 중심은 맛 점수로 정한 그대로다.
+    plain = rec.preference_target([point(18, 1.4, 4.0)])
+    for strength, shift in (("진함", 0.9), ("연함", 1.1), ("좋음", 1.0)):
+        target = rec.preference_target([point(18, 1.4, 4.0, strength=strength)])
+        assert target.tds_pct == pytest.approx(1.4 * shift) and target.n_strength == 1
+        assert target.ey_pct == pytest.approx(plain.ey_pct) and target.personal_center == plain.personal_center
+    assert plain.n_strength == 0 and plain.tds_pct == pytest.approx((1 * 1.4 + 5 * rec.GOLDEN_CUP_CENTER[1]) / 6)
+
+
+def test_target_concentration_uses_the_last_three_answers_including_disliked_cups():
+    # 오래된 답은 빠지고, 맛없었던 잔(점수 2.0)의 '진했어요'도 쓴다. 답이 없는 잔은 건너뛴다.
+    cups = [point(18, 2.0, 4.0, strength="진함"), point(18, 1.0, 4.0, strength="좋음"),
+            point(18, 1.2, 4.0), point(18, 1.5, 2.0, strength="진함"), point(18, 1.1, 4.0, strength="연함")]
+    target = rec.preference_target(cups)
+    assert target.n_strength == 3
+    assert target.tds_pct == pytest.approx((1.0 + 1.5 * 0.9 + 1.1 * 1.1) / 3)
+
+
+def test_strength_comes_from_the_log():
+    points = {p.brew_id: p for p in rec.brew_points(cal.load_brews())}
+    assert points["20261019-1"].strength == "진함"  # 메모 '물을 조금 더 타도 좋을 듯'
+    assert points["20261019-2"].strength == ""
 
 
 def test_target_moves_from_golden_cup_toward_my_center_as_records_grow():

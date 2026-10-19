@@ -574,13 +574,16 @@ def preference_section(brews):
     points = rec.brew_points(brews)
     target = rec.preference_target(points)
     section("내 선호 영역", "기록한 잔마다 모델로 계산한 위치예요. 굴절계로 잰 값이 아니라 모델 추정값이에요. "
-                          "만족도 2.5를 넘는 잔이 내 선호 중심을 당기고, 추천 목표는 골든컵 중심과 섞어서 정해요. "
-                          "좋았던 잔이 쌓일수록 목표가 내 쪽으로 옮겨 가요.")
+                          "얼마나 우러나게(추출수율)는 맛 점수로 배워요. 만족도 2.5를 넘는 잔이 내 선호 중심을 당기고, "
+                          "골든컵 중심과 섞어서 정해요. 좋았던 잔이 쌓일수록 목표가 내 쪽으로 옮겨 가요. "
+                          "얼마나 진하게(농도)는 '진하기' 답으로 배워요. 최근 세 잔의 답으로 바로 맞춰요.")
     center = target.personal_center
     html(
         '<div class="dc-cards">'
         + card("추천 목표 추출수율", f"{target.ey_pct:.1f}", "%", "추천은 이 값에 맞는 레시피를 찾아요.", hero=True)
-        + card("추천 목표 농도", f"{target.tds_pct:.2f}", "%", "가수한 뒤의 농도예요.")
+        + card("추천 목표 농도", f"{target.tds_pct:.2f}", "%",
+               f"가수한 뒤의 농도예요. 최근 진하기 답 {target.n_strength}잔으로 정했어요." if target.n_strength
+               else "가수한 뒤의 농도예요. 진하기 답이 쌓이면 그 답으로 맞춰요.")
         + card("중심을 당긴 잔", f"{target.n_liked}", "잔",
                f"내 선호 중심은 {center[0]:.1f}%, {center[1]:.2f}%예요." if center else "아직 없어서 골든컵 중심을 목표로 써요.")
         + "</div>"
@@ -988,6 +991,7 @@ def recommend_tab():
         ("추출수율 · 농도 (가수 후)", f"{target.ey_pct:.1f}% · {target.tds_pct:.2f}%"),
         ("근거", f"좋았던 잔 {target.n_liked}잔의 중심({center[0]:.1f}%, {center[1]:.2f}%)과 골든컵(20%, 1.25%)을 섞음"
          if center else "아직 좋았던 잔이 없어 골든컵 중심을 써요"),
+        *([("농도", f"최근 진하기 답 {target.n_strength}잔으로 정함")] if target.n_strength else []),
     ]))
 
     recipe, prediction = r.recipe, r.prediction

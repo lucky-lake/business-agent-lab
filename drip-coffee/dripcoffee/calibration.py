@@ -46,6 +46,8 @@ TASTE_ITEMS = (
 )
 TASTE_MAX = 5
 QUALITY_ITEMS = ("aroma", "flavor", "balance", "aftertaste")  # 만족도 점수에 넣는 항목
+# 진하기: 가수하고 바로 마셨을 때 '연했어요 / 딱 좋았어요 / 진했어요' (10/19). 비우면 모름. 내 선호 중심의 농도를 옮긴다(MODEL.md 9.1).
+STRENGTHS = ("연함", "좋음", "진함")
 
 # 숫자 칸: (칸 이름, 화면 이름, 0을 허용하는지)
 NUMBER_FIELDS = (
@@ -85,6 +87,7 @@ class Brew:
     beverage_g: float | None  # 가수 전 음료 무게
     taste: dict  # 맛 6항목, 비어 있으면 None
     flag: str
+    strength: str  # 진하기: '연함', '좋음', '진함' 또는 '' (모름)
     memo: str
     row: dict = field(default_factory=dict, repr=False)
 
@@ -438,6 +441,8 @@ def _check(row, existing):
 
     if row["flag"] and row["flag"] not in FLAGS:
         raise BrewLogError(f"표시는 {', '.join(FLAGS)} 중 하나로 적거나 비워 주세요: '{row['flag']}'")
+    if row.get("strength") and row["strength"] not in STRENGTHS:
+        raise BrewLogError(f"진하기는 {', '.join(STRENGTHS)} 중 하나로 적거나 비워 주세요: '{row['strength']}'")
 
 
 def _brew_from_row(row):
@@ -458,6 +463,7 @@ def _brew_from_row(row):
         beverage_g=_number(row.get("beverage_g", "")),
         taste={name: _number(row.get(name, "")) for name, _, _ in TASTE_ITEMS},
         flag=row.get("flag", ""),
+        strength=row.get("strength", ""),
         memo=row.get("memo", ""),
         row=row,
     )

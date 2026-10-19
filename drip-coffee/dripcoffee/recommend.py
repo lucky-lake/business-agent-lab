@@ -15,6 +15,10 @@ from dripcoffee.extraction_model import (DEFAULT_PARAMS, Pour, Recipe, RecipeErr
 GOLDEN_CUP_CENTER = (20.0, 1.25)  # 추출수율 %, 농도 % (골든컵 범위 18–22%, 1.15–1.35%의 가운데)
 GOLDEN_CUP_WEIGHT = 5  # 골든컵을 '좋았던 잔 5잔 분량'으로 친다 (가정)
 LIKED_ABOVE = 2.5  # 이 점수 이하인 잔은 중심을 당기지 않는다 (가정)
+# 진하기 답이 알려 주는 '좋았을 농도' = 그 잔의 농도 × 이 값. '연함'이면 10% 진하게, '진함'이면 10% 묽게 (가정).
+# 한 잔 250 g쯤에서 가수 물 20~25 g 차이로, 19-1 메모 '물을 조금 더 타도 좋을 듯'과 비슷한 크기다.
+STRENGTH_SHIFT = {"연함": 1.10, "좋음": 1.0, "진함": 0.90}
+STRENGTH_RECENT = 3  # 목표 농도는 진하기 답이 있는 최근 이만큼의 잔으로 정한다. 원두나 입맛이 바뀌면 옛 답이 빠지게 (가정)
 
 
 @dataclass(frozen=True)
@@ -26,6 +30,12 @@ class BrewPoint:
     ey_pct: float  # 추출수율 (모델 추정)
     tds_cup_pct: float  # 가수 후 농도 (모델 추정)
     score: float  # 만족도 점수 (1~5)
+    strength: str = ""  # 진하기 답 ('연함', '좋음', '진함', 모르면 '')
+
+    @property
+    def preferred_tds_pct(self):
+        """이 잔이 알려 주는 '좋았을 농도'. 진했다면 조금 묽게, 연했다면 조금 진하게 옮긴다."""
+        return self.tds_cup_pct * STRENGTH_SHIFT.get(self.strength, 1.0)
 
     @property
     def weight(self):
@@ -39,18 +49,30 @@ class PreferenceTarget:
     tds_pct: float  # 추천 목표 농도 (가수 후)
     n_liked: int  # 중심을 당긴 잔 수 (가중치가 0보다 큰 잔)
     personal_center: tuple | None  # 내 선호 중심 (추출수율, 농도). 좋았던 잔이 없으면 None
+    n_strength: int = 0  # 목표 농도를 정한 진하기 답 수. 0이면 목표 농도도 맛 점수 중심과 골든컵으로 정했다
 
 
 def preference_target(points):
-    """목표 = (n × 내 선호 중심 + 5 × 골든컵 중심) ÷ (n + 5). 기록이 쌓일수록 내 선호 쪽으로 옮겨 간다."""
+    """추천 목표 (MODEL.md 9.1). 얼마나 우러나게(추출수율)는 맛 점수로, 얼마나 진하게(농도)는 진하기 답으로 배운다.
+
+    - 목표 추출수율 = (n × 내 선호 중심 + 5 × 골든컵 중심) ÷ (n + 5). 기록이 쌓일수록 내 선호 쪽으로 옮겨 간다.
+    - 목표 농도 = 진하기 답이 있는 최근 3잔의 '좋았을 농도' 평균. 진하기는 내 입맛을 직접 물은 답이라 골든컵을
+      섞지 않고, 맛없었던 잔의 답도 쓴다. 한 번 답하면 다음 잔이 바로 바뀌고, '딱 좋았어요'가 나오면 멈춘다.
+      진하기 답이 하나도 없으면 추출수율과 같은 방식(맛 점수 중심과 골든컵)으로 정한다.
+    """
     liked = [p for p in points if p.weight > 0]
-    if not liked:
-        return PreferenceTarget(*GOLDEN_CUP_CENTER, n_liked=0, personal_center=None)
-    total = sum(p.weight for p in liked)
-    center = (sum(p.weight * p.ey_pct for p in liked) / total, sum(p.weight * p.tds_cup_pct for p in liked) / total)
-    n = len(liked)
-    ey, tds = ((n * c + GOLDEN_CUP_WEIGHT * g) / (n + GOLDEN_CUP_WEIGHT) for c, g in zip(center, GOLDEN_CUP_CENTER))
-    return PreferenceTarget(ey, tds, n_liked=n, personal_center=center)
+    if liked:
+        total = sum(p.weight for p in liked)
+        center = (sum(p.weight * p.ey_pct for p in liked) / total, sum(p.weight * p.tds_cup_pct for p in liked) / total)
+        n = len(liked)
+        ey, tds = ((n * c + GOLDEN_CUP_WEIGHT * g) / (n + GOLDEN_CUP_WEIGHT) for c, g in zip(center, GOLDEN_CUP_CENTER))
+    else:
+        center, n = None, 0
+        ey, tds = GOLDEN_CUP_CENTER
+    answered = [p for p in points if p.strength in STRENGTH_SHIFT][-STRENGTH_RECENT:]
+    if answered:
+        tds = sum(p.preferred_tds_pct for p in answered) / len(answered)
+    return PreferenceTarget(ey, tds, n_liked=n, personal_center=center, n_strength=len(answered))
 
 
 def brew_points(brews, params=DEFAULT_PARAMS):
@@ -67,7 +89,7 @@ def brew_points(brews, params=DEFAULT_PARAMS):
         if b.flag or score is None or b.brew_id not in sizes:
             continue
         prediction = predict(b.recipe(), grind_from_d50(sizes[b.brew_id][0]), params)
-        points.append(BrewPoint(b.brew_id, b.bean_id, prediction.ey_pct, prediction.tds_cup_pct, score))
+        points.append(BrewPoint(b.brew_id, b.bean_id, prediction.ey_pct, prediction.tds_cup_pct, score, b.strength))
     return points
 
 
