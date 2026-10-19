@@ -118,7 +118,7 @@ def test_brew_step_compares_the_result_with_the_prediction(monkeypatch, my_files
     button(at, "flow-next-1").click().run()
     button(at, "flow-next-2").click().run()
     button(at, "flow-skip-3").click().run()
-    assert has_text(at, "붓기 일정") and has_text(at, "0:00")
+    assert has_text(at, "붓기 일정") and has_text(at, "0:00") and has_text(at, "끊김 예상")  # 붓기 타임라인
     assert not any(b.key == "flow-next-4" for b in at.button) and has_text(at, "끊긴 시각과 음료 무게를 적으면")
     at.text_input(key="flow-drawdown").set_value("2:3x").run()
     # 잘못 적으면 위에서 내려오는 알림으로 적는 법을 알려 준다

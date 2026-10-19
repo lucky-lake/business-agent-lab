@@ -161,6 +161,39 @@ STYLE = """
                border-radius: 16px; background: #F2F4F6; color: #8B95A1; font-size: 15px; font-weight: 600;
                text-align: center; line-height: 1.4; animation: dc-rise .3s var(--dc-ease) both; }
 
+/* 아이콘 요약 카드: 숫자 여러 개를 회색 판 위 흰 칸으로 한 번에 보여 준다 (토스 자산 목록처럼). 아이콘은 Streamlit에
+   들어 있는 Material Symbols 글꼴이라 인터넷 없이도 보인다. 2×2로 두고, 넓은 화면에서만 한 줄 4칸(3+1로 깨지지 않게) */
+.dc-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 8px;
+              margin: 20px 0 8px; border-radius: 24px; background: #F2F4F6; animation: dc-rise .4s var(--dc-ease) both; }
+.dc-tile { background: #FFFFFF; border-radius: 18px; padding: 16px 16px 14px; min-width: 0; }
+@media (min-width: 760px) { .dc-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.dc-icon { font-family: "Material Symbols Rounded"; font-size: 20px; line-height: 1; width: 36px; height: 36px;
+           border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 10px;
+           background: #E8F3FF; color: #3182F6; font-variation-settings: "FILL" 1; }
+.dc-tile-label { font-size: 14px; color: #6B7684; }
+.dc-tile-value { font-size: 28px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; line-height: 1.25;
+                 font-variant-numeric: tabular-nums; }
+.dc-tile-value small { font-size: 16px; font-weight: 600; color: #4E5968; margin-left: 3px; letter-spacing: 0; }
+.dc-tile-sub { font-size: 13px; color: #8B95A1; margin-top: 2px; line-height: 1.4; }
+
+/* 붓기 타임라인: 막대 위치는 붓는 시각, 길이는 붓는 양. 위는 붓는 양, 아래는 시각과 저울에 보일 누적.
+   글자는 화면 크기와 상관없이 같은 크기로 보이게 SVG가 아니라 위치를 %로 둔 상자로 그린다. 막대는 차례로 자란다 */
+.dc-tl { position: relative; height: 128px; margin: 16px 10px 8px; }
+.dc-tl-track { position: absolute; left: 0; right: 0; top: 52px; height: 12px; border-radius: 6px; background: #F2F4F6; }
+.dc-tl-pour { position: absolute; top: 0; height: 128px; }
+.dc-tl-bar { position: absolute; left: 0; right: 0; top: 42px; height: 32px; min-width: 10px; border-radius: 8px;
+             background: #3182F6; transform-origin: left center; animation: dc-grow .45s var(--dc-spring) both;
+             animation-delay: calc(var(--i) * 90ms); }
+.dc-tl-pour.bloom .dc-tl-bar { background: #90C2FF; }
+.dc-tl-g, .dc-tl-t, .dc-tl-c { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; }
+.dc-tl-g { top: 14px; font-size: 15px; font-weight: 700; color: #2A2A2A; }
+.dc-tl-t { top: 82px; font-size: 13px; font-weight: 600; color: #4E5968; font-variant-numeric: tabular-nums; }
+.dc-tl-c { top: 102px; font-size: 12px; color: #8B95A1; }
+.dc-tl-end { position: absolute; top: 4px; bottom: 34px; border-left: 2px dashed #B0B8C1; }
+.dc-tl-end span { position: absolute; top: -6px; right: 8px; white-space: nowrap; font-size: 13px; font-weight: 700;
+                  color: #3182F6; }
+@keyframes dc-grow { from { transform: scaleX(0); } to { transform: none; } }
+
 /* 위에서 내려오는 알림 (토스 디자인 시스템 Toast: 흰 알약 모양, 옅은 그림자, 15px 굵은 글자, 왼쪽 아이콘,
    위쪽 알림은 48px 위에서 내려오고 3초 뒤 사라짐). 알림 자리는 화면 흐름 밖에 고정해 내용을 밀지 않는다 */
 .st-key-dc-toasts { position: fixed; top: 0; left: 0; right: 0; height: 0; z-index: 1000100; pointer-events: none; }
@@ -238,6 +271,45 @@ def card(label, value, unit, sub="", hero=False):
         + (f'<div class="dc-sub">{escape(sub)}</div>' if sub else "")
         + "</div>"
     )
+
+
+def tile(icon, label, value, unit="", sub=""):
+    """아이콘 요약 카드의 한 칸. icon은 Material Symbols 이름(예: grain, water_drop)."""
+    return (f'<div class="dc-tile"><span class="dc-icon" aria-hidden="true">{icon}</span>'
+            f'<div class="dc-tile-label">{escape(label)}</div>'
+            f'<div class="dc-tile-value">{counted(value)}<small>{escape(unit)}</small></div>'
+            + (f'<div class="dc-tile-sub">{escape(sub)}</div>' if sub else "") + "</div>")
+
+
+def summary(*tiles):
+    """숫자 여러 개를 한 번에 보여 주는 아이콘 요약 카드."""
+    html('<div class="dc-summary">' + "".join(tiles) + "</div>")
+
+
+def pour_timeline(recipe, end_s=None):
+    """붓기 일정을 가로 막대로 그린다. 막대 위치는 붓는 시각, 길이는 붓는 양(붓는 속도로 걸리는 시간)이다.
+    위에는 붓는 양, 아래에는 시각과 저울에 보일 누적을 적고, end_s를 주면 물줄기가 끊길 것으로 보는 시각을 표시한다.
+    글 목록보다 한눈에 들어오게 바꿨다 (10/20 사용자 요청)."""
+    rate = em.DEFAULT_PARAMS.pour_rate_g_per_s
+    span = max(end_s or 0, max(p.start_s + p.grams / rate for p in recipe.pours) + 20) * 1.04
+
+    def pct(seconds):
+        return 100 * seconds / span
+
+    parts, total, spoken = ['<div class="dc-tl-track"></div>'], 0.0, []
+    for i, p in enumerate(recipe.pours):
+        total += p.grams
+        bloom = i == 0
+        below = "뜸" if bloom else f"{total:g} g까지"
+        parts.append(f'<div class="dc-tl-pour{" bloom" if bloom else ""}" style="left:{pct(p.start_s):.2f}%;'
+                     f'width:{pct(p.grams / rate):.2f}%;--i:{i}"><div class="dc-tl-g">+{p.grams:g} g</div>'
+                     f'<div class="dc-tl-bar"></div><div class="dc-tl-t">{clock(p.start_s)}</div>'
+                     f'<div class="dc-tl-c">{below}</div></div>')
+        spoken.append(f"{clock(p.start_s)}에 {p.grams:g} g")
+    if end_s:
+        parts.append(f'<div class="dc-tl-end" style="left:{pct(end_s):.2f}%"><span>끊김 예상 {clock(end_s)}</span></div>')
+    label = "붓기 일정: " + ", ".join(spoken) + (f", 물줄기는 {clock(end_s)}쯤 끊겨요" if end_s else "")
+    html(f'<div class="dc-tl" role="img" aria-label="{escape(label)}">{"".join(parts)}</div>')
 
 
 def rows(items):
@@ -1196,6 +1268,15 @@ def base_name(usual):
                           f"{rec.pattern_text(usual.pattern)}배 / {usual.interval_s:g}초 레시피")
 
 
+def hint_short(hint, grinder):
+    """클릭 힌트를 요약 카드 한 줄로."""
+    if hint is None:
+        return f"{grinder} 클릭 기록 없음"
+    if hint.clicks is None:
+        return f"{hint.near.grinder_clicks}클릭보다 {hint.direction}"
+    return f"{grinder} 약 {hint.clicks}클릭"
+
+
 def hint_text(hint, grinder):
     """클릭 힌트를 한 문장으로."""
     if hint is None:
@@ -1384,19 +1465,21 @@ def flow_base_recipe(flow):
     recipe = r.recipe
     changed = (r.water_ratio != round(r.usual.water_ratio) or tuple(r.pattern) != tuple(r.usual.pattern))
 
+    # 무엇을 바꿨는지는 '목표에 맞추려고'보다 원두와 내 입맛에 맞췄다는 말로 (10/20 사용자 요청)
     html(f'<div class="dc-lead">{escape(bean["bean_id"])} {escape(bean["name"])} · {escape(bean["roast_level"])} · '
-         f"원두 {recipe.dose_g:g} g<br>베이스는 <b>{escape(base_name(r.usual))}</b>"
-         + ("이고, 목표에 맞추려고 물 양이나 붓기를 조금 바꿨어요." if changed else "예요.") + "</div>")
-    html(
-        '<div class="dc-cards three">'
-        + card("목표 분쇄", f"{r.d50_um:.0f}", "µm", hint_text(hint, flow["grinder"]), hero=True)
-        + card("물 온도", f"{recipe.water_temp_c:g}", "°C", f"{bean['roast_level']} 범위 안에서 골랐어요.")
-        + card("물", f"{recipe.water_g:g}", "g", f"원두의 {r.water_ratio}배 · {rec.pattern_text(r.pattern)}배")
-        + card("가수", f"{recipe.bypass_g:g}", "g", "드리퍼를 뺀 뒤 더하는 물이에요.")
-        + "</div>"
+         f"원두 {recipe.dose_g:g} g<br>베이스는 <b>{escape(base_name(r.usual))}</b>예요. 이 원두의 배전도와 내 입맛 기록에 맞춰 "
+         + ("물 양과 붓기를 조정했어요." if changed else "온도와 분쇄를 정했어요.") + "</div>")
+    low, high = r.temp_range
+    summary(
+        tile("grain", "목표 분쇄", f"{r.d50_um:.0f}", "µm", hint_short(hint, flow["grinder"])),
+        tile("device_thermostat", "물 온도", f"{recipe.water_temp_c:g}", "°C", f"{bean['roast_level']} {low}–{high} °C"),
+        tile("water_drop", "물", f"{recipe.water_g:g}", "g", f"원두의 {r.water_ratio}배"),
+        tile("water_full", "가수", f"{recipe.bypass_g:g}", "g", "드리퍼를 뺀 뒤 더해요"),
     )
-    section("붓기 일정", f"{r.interval_s:g}초 간격이에요. 붓는 방식(센터·원형 푸어)은 평소대로 해요.")
-    html(rows(pour_rows(r.recipe, r.pattern)))
+    html(f'<div class="dc-caption">{escape(hint_text(hint, flow["grinder"]))}</div>')
+    section("붓기 일정", f"{r.interval_s:g}초마다 부어요 · 원두의 {rec.pattern_text(r.pattern)}배 · "
+                     "붓는 방식(가운데로, 원을 그리며)은 평소대로 해요.")
+    pour_timeline(r.recipe, r.prediction.drawdown_end_s)
     html(f'<div class="dc-caption">목표: 추출수율 {target.ey_pct:.1f}%, 농도 {target.tds_pct:.2f}% (내 선호 영역). '
          f"예상 끊김 {clock(r.prediction.drawdown_end_s)} (모델 예측이라 원두에 따라 20초쯤 다를 수 있어요).</div>")
     notice("이제 위 클릭으로 원두를 갈고, 사진용으로 조금 덜어 축척 용지에 얇게 펴 주세요. "
@@ -1464,16 +1547,16 @@ def flow_grind(flow):
     profile = ga.combine_measurements(measurements)
     fit = rec.refit_to_grind(r, profile.d50_um, target)
     low, high = profile.d50_range_um
-    html(
-        '<div class="dc-cards three">'
-        + card("잰 대표 크기", f"{profile.d50_um:.0f}", "µm",
-               f"{size_verdict(profile.d50_um, r.d50_um)} (목표 {r.d50_um:.0f} µm). 같은 가루를 다시 찍으면 "
-               f"{low:.0f}~{high:.0f} µm로 나올 수 있어요.", hero=True)
-        + card("붓기 간격", f"{fit.interval_s:g}", "초", interval_text(fit.interval_change_s))
-        + card("가수", f"{fit.recipe.bypass_g:g}", "g", f"추천은 {r.recipe.bypass_g:g} g이었어요. 목표 진하기에 맞춰요.")
-        + card("예상 끊김", clock(fit.prediction.drawdown_end_s), "", "물줄기가 끊기고 방울로 바뀌는 때예요.")
-        + "</div>"
+    change = fit.interval_change_s
+    summary(
+        tile("grain", "잰 대표 크기", f"{profile.d50_um:.0f}", "µm", size_verdict(profile.d50_um, r.d50_um)),
+        tile("schedule", "붓기 간격", f"{fit.interval_s:g}", "초",
+             "추천 그대로" if change == 0 else f"추천보다 {abs(change):g}초 {'늘림' if change > 0 else '줄임'}"),
+        tile("water_full", "가수", f"{fit.recipe.bypass_g:g}", "g", f"추천 {r.recipe.bypass_g:g} g"),
+        tile("timer", "예상 끊김", clock(fit.prediction.drawdown_end_s), "", "물줄기가 끊기는 때"),
     )
+    html(f'<div class="dc-caption">목표 {r.d50_um:.0f} µm. {escape(interval_text(change))} 같은 가루를 다시 찍으면 '
+         f"{low:.0f}~{high:.0f} µm로 나올 수 있어요.</div>")
     if not fit.reached:
         need = "더 곱게" if profile.d50_um > r.d50_um else "더 굵게"
         notice(f"간격을 15초까지 바꿔도 목표만큼 {'우러나지 않아요' if fit.ey_gap_pct < 0 else '덜 우러나게 하지 못해요'}"
@@ -1482,7 +1565,7 @@ def flow_grind(flow):
         notice(warning)
     section("이 가루에 맞춘 붓기 일정", f"원두 {fit.recipe.dose_g:g} g · {fit.recipe.water_temp_c:g} °C · "
                                      f"물 {fit.recipe.water_g:g} g · 그다음 가수 {fit.recipe.bypass_g:g} g")
-    html(rows(pour_rows(fit.recipe, r.pattern)))
+    pour_timeline(fit.recipe, fit.prediction.drawdown_end_s)
     with st.expander(f"사진에서 잰 입자 보기 ({len(shown)}장 · 입자 {profile.n_particles}개)"):
         html('<div class="dc-caption">파란 선은 잰 입자, 회색 선은 뺀 것(여러 알이 엉킨 덩어리, 칸 테두리에 걸린 입자, '
              "은피)이에요.</div>")
@@ -1523,14 +1606,17 @@ def flow_brew(flow):
     html('<div class="dc-lead">타이머를 켜고 첫 물(뜸)을 붓는 순간을 <b>0:00</b>으로 해요. 아래 시각에 맞춰 부어 주세요.<br>'
          "물줄기가 끊기고 방울로 바뀌면 드리퍼를 바로 빼고, 그 시각을 적어요. "
          "뜸은 처음에 물을 조금 부어 가루를 고루 적시는 단계예요.</div>")
-    grind = f"{flow['measured_d50_um']:.0f} µm (사진으로 잼)" if flow.get("measured_d50_um") else "사진 없음"
-    html(rows([
-        ("원두 · 물 온도", f"{recipe.dose_g:g} g · {recipe.water_temp_c:g} °C"),
-        ("분쇄", (f"{flow['clicks']}클릭 · " if flow.get("clicks") is not None else "") + grind),
-        ("물", f"{recipe.water_g:g} g · 드리퍼를 뺀 뒤 가수 {recipe.bypass_g:g} g"),
-    ]))
-    section("붓기 일정", "붓는 방식(가운데로 붓기, 원을 그리며 붓기)은 평소대로 해요.")
-    html(rows(pour_rows(recipe, flow["pattern"])))
+    measured = flow.get("measured_d50_um")
+    clicks = f"{flow['clicks']}클릭" if flow.get("clicks") is not None else "클릭 기록 없음"
+    summary(
+        tile("coffee", "원두", f"{recipe.dose_g:g}", "g", flow.get("bean_id", "")),
+        tile("device_thermostat", "물 온도", f"{recipe.water_temp_c:g}", "°C", "주전자 물"),
+        tile("grain", "분쇄", f"{measured:.0f}" if measured else "–", "µm" if measured else "",
+             clicks + (" · 사진으로 잼" if measured else " · 사진 없음")),
+        tile("water_drop", "물", f"{recipe.water_g:g}", "g", f"그다음 가수 {recipe.bypass_g:g} g"),
+    )
+    section("붓기 일정", "타이머 0:00부터 이 시각에 부어요. 저울이 아래 숫자가 될 때까지예요.")
+    pour_timeline(recipe, prediction.drawdown_end_s)
     html(f'<div class="dc-caption">예상: 물줄기는 {clock(prediction.drawdown_end_s)}쯤 끊기고, 가수 전 음료는 '
          f"약 {prediction.beverage_g:.0f} g이에요. 모델 예측이라 원두에 따라 20초쯤 다를 수 있어요.</div>")
 
