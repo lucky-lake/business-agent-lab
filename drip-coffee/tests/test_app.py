@@ -117,7 +117,8 @@ def test_brew_step_compares_the_result_with_the_prediction(monkeypatch, my_files
     assert has_text(at, "붓기 일정") and has_text(at, "0:00")
     assert not any(b.key == "flow-next-4" for b in at.button) and has_text(at, "끊긴 시각과 음료 무게를 적으면")
     at.text_input(key="flow-drawdown").set_value("2:3x").run()
-    assert has_text(at, "2:42(분:초)")  # 잘못 적으면 적는 법을 알려 준다
+    # 잘못 적으면 위에서 내려오는 알림으로 적는 법을 알려 준다
+    assert any("dc-toast" in e.proto.body and "2:42(분:초)" in e.proto.body for e in at.get("html"))
     at.text_input(key="flow-drawdown").set_value("2:20").run()
     at.number_input(key="flow-beverage").set_value(176.0).run()
     assert not at.exception and has_text(at, "끊겼어요") and has_text(at, "예측(")

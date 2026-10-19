@@ -160,9 +160,28 @@ STYLE = """
                border-radius: 16px; background: #F2F4F6; color: #8B95A1; font-size: 15px; font-weight: 600;
                text-align: center; line-height: 1.4; animation: dc-rise .3s var(--dc-ease) both; }
 
-/* 휴대폰에서 '동작 줄이기'를 켠 사람에게는 움직이지 않는다 (숫자는 바로 최종 값) */
+/* 위에서 내려오는 알림 (토스 디자인 시스템 Toast: 흰 알약 모양, 옅은 그림자, 15px 굵은 글자, 왼쪽 아이콘,
+   위쪽 알림은 48px 위에서 내려오고 3초 뒤 사라짐). 알림 자리는 화면 흐름 밖에 고정해 내용을 밀지 않는다 */
+.st-key-dc-toasts { position: fixed; top: 0; left: 0; right: 0; height: 0; z-index: 1000100; pointer-events: none; }
+.dc-toast { position: fixed; top: 16px; left: 50%; display: flex; align-items: center; gap: 8px;
+            width: max-content; max-width: min(92vw, 560px); padding: 12px 16px 12px 12px; border-radius: 100px;
+            background: #FFFFFF; box-shadow: 0 2px 30px rgba(0, 27, 55, 0.1); color: rgba(0, 12, 30, 0.8);
+            font-size: 15px; font-weight: 600; line-height: 1.45; animation: dc-toast 3.4s both; }
+.dc-toast-icon { flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center;
+                 justify-content: center; color: #FFFFFF; font-size: 14px; font-weight: 800; background: #FFB800; }
+.dc-toast.error .dc-toast-icon { background: #F04452; }
+@keyframes dc-toast {
+  0% { opacity: 0; transform: translate(-50%, -48px); animation-timing-function: var(--dc-spring); }
+  9% { opacity: 1; transform: translate(-50%, 0); }
+  88% { opacity: 1; transform: translate(-50%, 0); animation-timing-function: var(--dc-ease); }
+  100% { opacity: 0; transform: translate(-50%, -24px); visibility: hidden; }
+}
+@keyframes dc-toast-still { 0%, 88% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+
+/* 휴대폰에서 '동작 줄이기'를 켠 사람에게는 움직이지 않는다 (숫자는 바로 최종 값, 알림은 움직이지 않고 사라지기만) */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+  .dc-toast { transform: translateX(-50%); animation: dc-toast-still 3.4s steps(1, end) both !important; }
 }
 @media (max-width: 640px) { .dc-cards, .dc-cards.three { grid-template-columns: 1fr; } .dc-value { font-size: 40px; } }
 </style>
@@ -176,6 +195,28 @@ def html(markup):
 def notice(text, error=False):
     """경고·안내 문구. 노란 상자 대신 연한 회색 상자로 조용하게 보여준다."""
     html(f'<div class="dc-notice{" error" if error else ""}">{escape(text)}</div>')
+
+
+TOASTS = None  # 위에서 내려오는 알림 자리. 페이지를 그리기 전에 만든다 (화면 흐름 밖에 고정)
+
+
+def toast(text, error=False):
+    """토스 디자인 시스템의 Toast처럼 화면 위에서 내려왔다가 3초 뒤 사라지는 알림.
+    잘못 적은 값, 읽지 못한 사진, 저장 실패처럼 잠깐 알리면 되는 것에 쓴다. 노란 '!'는 고쳐 달라는 뜻, 빨간 '!'는 실패.
+    화면에 계속 남아야 하는 상태(추천을 찾지 못함 등)는 notice로 보여 준다."""
+    markup = (f'<div class="dc-toast{" error" if error else ""}" role="alert" aria-live="assertive">'
+              f'<span class="dc-toast-icon" aria-hidden="true">!</span>{escape(text)}</div>')
+    if TOASTS is None:  # 페이지 밖(테스트 등)에서 부르면 그 자리에 그린다
+        html(markup)
+        return
+    with TOASTS:
+        html(markup)
+
+
+def photo_errors_text(errors):
+    """읽지 못한 사진들을 알림 한 줄로. errors는 (파일 이름, 이유) 목록."""
+    name, reason = errors[0]
+    return f"{name}: {reason}" if len(errors) == 1 else f"사진 {len(errors)}장을 읽지 못했어요. {name}: {reason}"
 
 
 def section(title, caption=""):
@@ -392,12 +433,12 @@ def grind_tab():
 
     section("사진별 결과", "파란 선은 잰 입자, 회색 선은 뺀 것(여러 알이 엉킨 덩어리, 칸 테두리에 걸린 입자, 은피)이에요. "
                         "붙은 입자는 잘록한 곳에서 나눠 따로 재요.")
-    measurements, names = [], []
+    measurements, names, errors = [], [], []
     for upload in uploads:
         with st.spinner(f"{upload.name} 분석 중..."):
             rectified, measurement, error = analyze_upload(upload.getvalue())
         if error:
-            notice(f"{upload.name}: {error}", error=True)
+            errors.append((upload.name, error))
             continue
         measured = len(measurement.diameters_um)
         label = f"{upload.name} · " + (f"대표 크기 {measurement.d50_volume_um:.0f} µm" if measured else "잰 입자 없음")
@@ -407,15 +448,18 @@ def grind_tab():
             measurements.append(measurement)
             names.append(upload.name)
 
+    if errors:
+        toast(photo_errors_text(errors))
     if not measurements:
-        notice("입자를 잰 사진이 없어요. 가루를 칸 안쪽에 듬성듬성 펴고 다시 찍어 주세요.", error=True)
+        if not errors:
+            toast("입자를 잰 사진이 없어요. 가루를 칸 안쪽에 듬성듬성 펴고 다시 찍어 주세요.")
         show_saved_profiles()
         return
 
     profile = ga.combine_measurements(measurements)
     section("이번 측정 결과", f"사진 {profile.n_photos}장 · 잰 입자 {profile.n_particles}개")
     if ga.size_distribution_curve(profile.diameters_um) is None:
-        notice("잰 입자가 너무 적어 분포를 계산할 수 없어요. 사진을 더 넣어 주세요.", error=True)
+        toast("잰 입자가 너무 적어 분포를 계산할 수 없어요. 사진을 더 넣어 주세요.")
         show_saved_profiles()
         return
     show_profile(profile, grinder, int(clicks))
@@ -789,7 +833,7 @@ def log_form():
             }
             cal.append_brew(record, BREWS_PATH)
         except cal.BrewLogError as error:
-            notice(str(error), error=True)
+            toast(str(error), error=True)
         else:
             score = cal.load_brews(BREWS_PATH)[-1].quality_score
             st.session_state["log_saved"] = f"저장했어요: {brew_id}" + (f" · 만족도 {score:.2f}" if score else "")
@@ -1332,21 +1376,23 @@ def flow_grind(flow):
     uploads = st.file_uploader("가루 사진 (여러 장 가능)", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True,
                                key="flow-photos",
                                help="폰 카메라로 찍은 원본을 올려 주세요. 여러 장을 올리면 합쳐서 더 정확해요.") or []
-    measurements, names, shown = [], [], []
+    measurements, names, shown, errors = [], [], [], []
     for upload in uploads:
         with st.spinner(f"{upload.name} 재는 중..."):
             rectified, measurement, error = analyze_upload(upload.getvalue())
         if error:
-            notice(f"{upload.name}: {error}", error=True)
+            errors.append((upload.name, error))
             continue
         shown.append((upload.name, rectified, measurement))
         if len(measurement.diameters_um):
             measurements.append(measurement)
             names.append(upload.name)
 
+    if errors:
+        toast(photo_errors_text(errors))
     if not measurements:
         if uploads and shown:
-            notice("입자를 잰 사진이 없어요. 가루를 칸 안쪽에 듬성듬성 펴고 다시 찍어 주세요.", error=True)
+            toast("입자를 잰 사진이 없어요. 가루를 칸 안쪽에 듬성듬성 펴고 다시 찍어 주세요.")
         elif not uploads:
             notice("사진을 올리면 가루의 실제 크기를 재고, 목표와 다르면 그 가루에 맞게 레시피를 고쳐 드려요. "
                    "사진 없이 내리면 크기를 몰라서, 이 잔으로는 입맛을 배우기 어려워요.")
@@ -1448,7 +1494,7 @@ def flow_brew(flow):
     try:
         seconds = cal.parse_clock(drawdown)
     except cal.BrewLogError as error:
-        notice(str(error), error=True)
+        toast(str(error))
     if seconds and beverage:
         html(
             '<div class="dc-cards">'
@@ -1520,7 +1566,7 @@ def flow_taste(flow):
         try:
             cal.append_brew(record, BREWS_PATH)
         except cal.BrewLogError as error:
-            notice(str(error), error=True)
+            toast(str(error), error=True)
             return
         if flow.get("profile") is not None:  # 사진 측정도 이 추출번호로 저장해 둔다 ('사진만 재기'의 저장한 측정)
             ga.save_profile(ga.profile_record(flow["profile"], flow["bean_id"], flow["grinder"], flow.get("clicks"),
@@ -1668,5 +1714,6 @@ def check_page():
 
 st.set_page_config(page_title="Drip Coffee", layout="wide")
 html(STYLE)
+TOASTS = st.container(key="dc-toasts")  # 위에서 내려오는 알림 자리 (toast)
 PAGES = {"home": home_page, "flow": flow_page, "history": history_page, "check": check_page}
 PAGES[st.session_state.setdefault("page", "home")]()
