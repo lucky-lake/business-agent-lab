@@ -107,8 +107,8 @@ BASE_RECIPES = {"중강배전 이상": (8.0, (4, 2), 60.0), "그 밖": (11.0, (3
 BLOOM_MULTIPLE = 2  # 뜸 물 = 원두의 2배, 0초에 붓는다
 POUR_MULTIPLES = (4, 3, 2)  # 뜸 뒤 한 번에 붓는 양 = 원두의 2·3·4배 중 하나
 GRIND_RANGE_UM = (700.0, 1800.0)  # 핸드드립으로 보는 대표 크기 범위
-GOOD_DRAWDOWN_S = (120.0, 210.0)  # 고르기에서 먼저 보는 끊김 시각 (2:00–3:30)
-OUT_OF_WINDOW_LIMIT = 30  # 끊김이 범위 밖인 후보가 이만큼 쌓이면 더 찾지 않고 그중 가장 평소다운 것을 고른다
+GOOD_DRAWDOWN_S = (120.0, 210.0)  # 끊김 시각 범위 (2:00–3:30). 이 밖의 레시피는 추천하지 않는다 (10/20 사용자와 정함)
+OUT_OF_WINDOW_LIMIT = 30  # 끊김이 범위 밖인 후보가 이만큼 쌓이면 목표에 딱 맞추기를 그만두고 가장 가까운 레시피를 찾는다
 GRIND_STEP_UM = 10  # 추천 크기는 10 µm 단위로 보여준다
 REFIT_INTERVAL_S = 15  # 잰 분쇄에 맞춰 붓기 간격을 바꿀 수 있는 폭 (±, 사용자와 정함 10/19)
 REFIT_STEP_S = 5  # 간격은 5초 단위로 바꾼다 (타이머를 보며 따라 하기 쉽게)
@@ -143,6 +143,8 @@ class Recommendation:
     clog_limit_um: float | None  # 이보다 고운 분쇄는 뺐다 (같은 원두가 막혔던 가장 굵은 크기)
     checked: int  # 계산해 본 후보 수
     skipped: dict = field(default_factory=dict)  # 뺀 이유별 후보 수
+    # 예측 추출수율 − 목표. 끊김 제한 안에서는 목표에 닿지 못해 가장 가까운 레시피를 골랐을 때만 0이 아니다 (음수 = 덜 우러남)
+    ey_gap_pct: float = 0.0
 
 
 @dataclass
@@ -246,9 +248,13 @@ def recommend_recipe(target, bean, brews, dose_g=20.0, params=DEFAULT_PARAMS):
     2. 후보마다 추출수율이 목표와 같아지는 분쇄 크기를 찾는다(곱게 갈수록 수율이 오르므로 하나로 정해짐).
        700–1800 µm 밖이거나 같은 원두가 막혔던 크기보다 고우면 뺀다.
     3. 가수량 = 음료로 나간 성분 ÷ 목표 농도 − 음료 무게. 가수 없이도 목표보다 묽으면 뺀다.
-    4. 남은 후보는 모두 목표에 맞으므로, 끊김이 2:00–3:30 안인 것을 먼저, 그다음 평소 레시피와 덜 다른 것을 고른다.
-       계산을 줄이려고 후보를 평소 레시피와 가까운 순서로 계산하고, 끊김이 2:00–3:30 안인 첫 후보에서 멈춘다.
-       범위 밖인 후보만 30개 쌓이면 더 찾지 않고 그중 가장 평소다운 후보를 고른다(모두 계산하면 30초 가까이 걸려서).
+    4. 끊김은 2:00–3:30 안이어야 한다. 오래 우리면 쓴맛이 나기 쉬운데 모델은 이를 계산하지 못하고, 문헌 비교에서
+       모델이 유일하게 통과하지 못한 것도 시간 효과라서다(6절). 남은 후보는 모두 목표에 맞으므로 평소 레시피와 덜
+       다른 것을 고른다. 계산을 줄이려고 평소 레시피와 가까운 순서로 계산하고, 범위 안인 첫 후보에서 멈춘다.
+    5. 범위 안에서 목표에 딱 맞는 후보가 없으면(범위 밖 후보가 30개 쌓이면 그만 찾는다), 분쇄와 온도로 최대한
+       맞춘다: 후보마다 허용되는 가장 고운 분쇄(막힘 한계 바로 위)로 한 번씩 계산해, 끊김이 범위 안인 것 중
+       추출수율이 목표에 가장 가까운 것을 고른다. 목표와 0.3%p 안이면 맞은 것으로 보고(3단계 다시 맞추기와 같은
+       기준) 그중 가장 평소다운 것을 고른다. 모자란 만큼은 ey_gap_pct로 알려 화면에서 설명한다.
     """
     temp_low, temp_high = roast_range(bean.get("roast_level", ""))
     usual = usual_recipe(bean, brews)
@@ -259,15 +265,34 @@ def recommend_recipe(target, bean, brews, dose_g=20.0, params=DEFAULT_PARAMS):
         ratio, pattern, temp = c
         return abs(ratio - usual.water_ratio) + abs(temp - usual.temp_c) / 2 + pattern_gap(pattern, usual.pattern) / 2
 
-    candidates = sorted(((ratio, pattern, temp) for ratio in WATER_RATIOS
-                         for pattern in split_patterns(ratio - BLOOM_MULTIPLE)
-                         for temp in range(temp_low, temp_high + 1)), key=distance)
-    skipped = {"가장 곱게 갈아도 목표 수율보다 낮음": 0, "가장 굵게 갈아도 목표 수율보다 높음": 0, "가수 없이도 목표 농도보다 묽음": 0}
-    fallback = None
-    checked = out_of_window = 0
-    for ratio, pattern, temp in candidates:
-        checked += 1
-        recipe = Recipe(dose_g, float(temp), pattern_pours(dose_g, pattern, usual.interval_s), 0.0)
+    def in_window(seconds):
+        return GOOD_DRAWDOWN_S[0] <= seconds <= GOOD_DRAWDOWN_S[1]
+
+    def plain(pattern, temp):
+        return Recipe(dose_g, float(temp), pattern_pours(dose_g, pattern, usual.interval_s), 0.0)
+
+    def allowed(d50):
+        """10 µm 단위로 맞추되 막힘 한계 안쪽으로 들어가지 않게."""
+        d50 = round(d50 / GRIND_STEP_UM) * GRIND_STEP_UM
+        while d50 <= (limit or 0):
+            d50 += GRIND_STEP_UM
+        return d50
+
+    def build(c, d50, ey_gap=0.0):
+        """분쇄 크기가 정해진 후보에 가수량을 붙여 추천으로 만든다. 가수 없이도 목표보다 묽으면 None."""
+        ratio, pattern, temp = c
+        result = predict(plain(pattern, temp), grind_from_d50(d50), params)
+        bypass = round(result.dissolved_g / (target.tds_pct / 100) - result.beverage_g)
+        if bypass < 0:
+            skipped["가수 없이도 목표 농도보다 묽음"] += 1
+            return None
+        recipe = Recipe(dose_g, float(temp), plain(pattern, temp).pours, float(bypass))
+        return Recommendation(recipe, float(d50), predict(recipe, grind_from_d50(d50), params), ratio, pattern,
+                              usual.interval_s, usual, (temp_low, temp_high), limit, checked, skipped, ey_gap)
+
+    def solve(c):
+        """목표 추출수율에 딱 맞는 분쇄 크기로 추천을 만든다. 맞출 수 없으면 None."""
+        recipe = plain(c[1], c[2])
 
         def ey(d50):
             try:
@@ -277,34 +302,60 @@ def recommend_recipe(target, bean, brews, dose_g=20.0, params=DEFAULT_PARAMS):
 
         if ey(lowest) < target.ey_pct:
             skipped["가장 곱게 갈아도 목표 수율보다 낮음"] += 1
-            continue
+            return None
         if ey(GRIND_RANGE_UM[1]) > target.ey_pct:
             skipped["가장 굵게 갈아도 목표 수율보다 높음"] += 1
-            continue
+            return None
         fine, coarse = math.log(lowest), math.log(GRIND_RANGE_UM[1])
         for _ in range(9):  # 로그 크기에서 반씩 줄여 약 2 µm까지 좁힌다
             middle = (fine + coarse) / 2
             fine, coarse = (middle, coarse) if ey(math.exp(middle)) > target.ey_pct else (fine, middle)
-        d50 = round(math.exp((fine + coarse) / 2) / GRIND_STEP_UM) * GRIND_STEP_UM
-        while d50 <= (limit or 0):  # 10 µm로 맞추다 막힘 한계 안쪽으로 들어가지 않게
-            d50 += GRIND_STEP_UM
-        result = predict(recipe, grind_from_d50(d50), params)
-        bypass = round(result.dissolved_g / (target.tds_pct / 100) - result.beverage_g)
-        if bypass < 0:
-            skipped["가수 없이도 목표 농도보다 묽음"] += 1
+        return build(c, allowed(math.exp((fine + coarse) / 2)))
+
+    candidates = sorted(((ratio, pattern, temp) for ratio in WATER_RATIOS
+                         for pattern in split_patterns(ratio - BLOOM_MULTIPLE)
+                         for temp in range(temp_low, temp_high + 1)), key=distance)
+    skipped = {"가장 곱게 갈아도 목표 수율보다 낮음": 0, "가장 굵게 갈아도 목표 수율보다 높음": 0,
+               "가수 없이도 목표 농도보다 묽음": 0, "끊김이 2:00–3:30 밖": 0}
+    checked = 0
+    for c in candidates:  # 목표에 딱 맞는 레시피 (4)
+        checked += 1
+        found = solve(c)
+        if found is None:
             continue
-        recipe = Recipe(dose_g, float(temp), recipe.pours, float(bypass))
-        found = Recommendation(recipe, float(d50), predict(recipe, grind_from_d50(d50), params), ratio, pattern,
-                               usual.interval_s, usual, (temp_low, temp_high), limit, checked, skipped)
-        if GOOD_DRAWDOWN_S[0] <= found.prediction.drawdown_end_s <= GOOD_DRAWDOWN_S[1]:
+        if in_window(found.prediction.drawdown_end_s):
+            found.checked = checked
             return found
-        fallback = fallback or found  # 끊김이 범위 밖이어도 가장 평소다운 후보는 남겨 둔다
-        out_of_window += 1
-        if out_of_window >= OUT_OF_WINDOW_LIMIT:
+        skipped["끊김이 2:00–3:30 밖"] += 1
+        if skipped["끊김이 2:00–3:30 밖"] >= OUT_OF_WINDOW_LIMIT:
             break
-    if fallback:
-        fallback.checked = checked
-        return fallback
+
+    finest = allowed(lowest)  # 목표에 가장 가까운 레시피 (5): 허용되는 가장 고운 분쇄로 한 번씩
+    close, nearest = [], None
+    for c in candidates:
+        checked += 1
+        try:
+            result = predict(plain(c[1], c[2]), grind_from_d50(finest), params)
+        except RecipeError:
+            continue
+        if not in_window(result.drawdown_end_s):
+            continue
+        if result.ey_pct > target.ey_pct + REFIT_EY_TOLERANCE:  # 더 굵게 갈면 목표에 딱 맞출 수 있다
+            found = solve(c)
+            if found is not None and in_window(found.prediction.drawdown_end_s):
+                found.checked = checked
+                return found
+            continue
+        gap = result.ey_pct - target.ey_pct
+        if gap >= -REFIT_EY_TOLERANCE:
+            close.append((c, gap))
+        elif nearest is None or gap > nearest[1]:
+            nearest = (c, gap)
+    for c, gap in close + ([nearest] if nearest else []):  # 맞은 것은 평소다운 순서로, 없으면 가장 가까운 것
+        found = build(c, finest, 0.0 if gap >= -REFIT_EY_TOLERANCE else gap)
+        if found is not None:
+            found.checked = checked
+            return found
     reasons = ", ".join(f"{k} {v}개" for k, v in skipped.items() if v)
     raise NoRecipeError(f"목표(추출수율 {target.ey_pct:.1f}%, 농도 {target.tds_pct:.2f}%)에 맞는 레시피를 찾지 못했어요. "
                         f"후보 {checked}개 중 {reasons}.")
@@ -318,6 +369,8 @@ def refit_to_grind(recommendation, measured_d50_um, target, params=DEFAULT_PARAM
     - 붓기 간격을 추천 ±15초 안에서 5초 단위로 바꿔, 추출수율이 목표에 가장 가까운 간격을 고른다. 목표와 0.3%p 안인
       간격이 여럿이면 가장 덜 바꾼 것을 고른다. 모델에서 간격 15초는 추출수율을 약 2%p 바꾸지만, 온도는 배전도
       범위 안에서 0.5%p쯤만 바꿔서 간격을 쓴다(분쇄 100 µm ≈ 1.3%p라 약 ±120 µm까지 메운다).
+    - 끊김이 2:00–3:30 밖으로 나가는 간격은 고르지 않는다(추천과 같은 제한). 모든 간격이 밖이면 범위에 가장 가까운
+      간격을 쓴다.
     - 물 양, 붓기 배수, 온도는 그대로 둔다. 이미 받은 계획에서 덜 바꾸기 위해서다.
     - 가수량은 바뀐 레시피의 음료로 목표 농도를 다시 맞춘다. 가수 없이도 묽으면 0으로 둔다.
     """
@@ -335,6 +388,12 @@ def refit_to_grind(recommendation, measured_d50_um, target, params=DEFAULT_PARAM
             continue
     if not options:
         raise NoRecipeError("잰 분쇄 크기로는 이 레시피를 계산할 수 없어요. 분쇄를 다시 확인해 주세요.")
+
+    def outside(seconds):  # 끊김 범위에서 몇 초 벗어났는지 (안이면 0)
+        return max(GOOD_DRAWDOWN_S[0] - seconds, seconds - GOOD_DRAWDOWN_S[1], 0.0)
+
+    options = ([o for o in options if outside(o[2].drawdown_end_s) == 0]
+               or [min(options, key=lambda o: outside(o[2].drawdown_end_s))])
     close = [o for o in options if abs(o[2].ey_pct - target.ey_pct) <= REFIT_EY_TOLERANCE]
     change, recipe, result = (min(close, key=lambda o: abs(o[0])) if close
                               else min(options, key=lambda o: abs(o[2].ey_pct - target.ey_pct)))

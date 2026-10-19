@@ -1353,6 +1353,7 @@ def recommend_tab():
 
     recipe, prediction = r.recipe, r.prediction
     low, high = r.temp_range
+    time_limit_notice(r, target)
     section("추천 레시피", f"원두 {recipe.dose_g:g} g · 물 {recipe.water_g:g} g (원두의 {r.water_ratio}배, "
                          f"{rec.pattern_text(r.pattern)}배) · {r.interval_s:g}초 간격")
     html(
@@ -1399,7 +1400,8 @@ def recommend_tab():
             ("계산한 후보", f"{r.checked}개"),
         ]))
         html('<div class="dc-caption">후보마다 목표 추출수율에 맞는 분쇄 크기를 찾고, 가수량으로 농도를 맞춰요. '
-             "그중 끊김이 2:00–3:30 안이고 출발점과 가장 덜 다른 레시피를 골라요 (MODEL.md 9.2).</div>")
+             "끊김이 2:00–3:30을 넘는 레시피는 고르지 않고, 그 안에서 출발점과 가장 덜 다른 것을 골라요. 그 안에서 목표에 "
+             "닿지 못하면 가장 가까운 것을 골라요 (MODEL.md 9.2).</div>")
 
 
 # 한 잔 내리기: 원두·장비 → 기초 추천 → 분쇄 확인 → 내리기와 기록 → 맛 평가 → 마무리
@@ -1678,10 +1680,20 @@ def flow_base_recipe(flow):
     pour_timeline(r.recipe, r.prediction.drawdown_end_s)
     html(f'<div class="dc-caption">목표: 추출수율 {target.ey_pct:.1f}%, 농도 {target.tds_pct:.2f}% (내 선호 영역). '
          f"예상 끊김 {clock(r.prediction.drawdown_end_s)} (모델 예측이라 원두에 따라 20초쯤 다를 수 있어요).</div>")
+    time_limit_notice(r, target)
     notice("이제 위 클릭으로 원두를 갈고, 사진용으로 조금 덜어 축척 용지에 얇게 펴 주세요. "
            "다음 단계에서 사진으로 실제 크기를 재고, 목표와 다르면 그 가루에 맞게 레시피를 고쳐요.")
     if bottom_cta("다음: 갈고 사진 찍기", "flow-next-2", back_to=1, back_key="flow-back-2"):
         go_to(3)
+
+
+def time_limit_notice(r, target):
+    """끊김 3:30 안에서는 목표 추출수율에 닿지 못해 가장 가까운 레시피를 골랐을 때만 그 까닭을 알린다 (MODEL.md 9.2)."""
+    if not r.ey_gap_pct:
+        return
+    why = "막혔던 기록 때문에 더 곱게 갈 수 없어서, " if r.clog_limit_um else ""
+    notice(f"오래 우리면 쓴맛이 나기 쉬워서 물 빠짐은 3:30을 넘지 않게 해요. {why}그 안에서 가장 많이 우러나는 "
+           f"레시피예요. 목표보다 조금 덜 우러나요 (예상 추출수율 {r.prediction.ey_pct:.1f}% · 목표 {target.ey_pct:.1f}%).")
 
 
 def size_verdict(measured_um, target_um):

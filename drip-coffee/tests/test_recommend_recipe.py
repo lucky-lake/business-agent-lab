@@ -89,18 +89,34 @@ def test_bean_without_records_gets_a_recipe_for_its_own_dose(brews, beans):
     assert "기록이 없어" in r.usual.source
 
 
-def test_drawdown_between_2_and_3_30_is_preferred(brews, beans):
-    r = rec.recommend_recipe(TARGET, beans["B02"], brews)
+@pytest.mark.parametrize("bean_id", ["B01", "B02", "B07"])
+def test_drawdown_never_goes_past_3_30(brews, beans, bean_id):
+    # 오래 우리면 쓴맛이 나기 쉬운데 모델은 이를 계산하지 못해서, 끊김 2:00–3:30을 넘는 레시피는 고르지 않는다
+    r = rec.recommend_recipe(TARGET, beans[bean_id], brews)
     assert 120 <= r.prediction.drawdown_end_s <= 210
 
 
-def test_search_stops_when_no_candidate_ends_in_the_time_window(brews, beans, monkeypatch):
-    # 끊김 범위 안 후보가 하나도 없으면, 범위 밖 후보를 일정 수만 계산하고 그중 가장 평소다운 것을 고른다
-    monkeypatch.setattr(rec, "GOOD_DRAWDOWN_S", (60.0, 61.0))
+def test_when_the_target_needs_more_time_grind_and_temperature_get_as_close_as_they_can(brews, beans):
+    # B01은 막혔던 기록 때문에 더 곱게 갈 수 없다. 18.5%는 3:30 안에 닿지 못하므로, 허용되는 가장 고운 분쇄로
+    # 범위 안에서 가장 많이 우러나는 레시피를 고르고 모자란 만큼을 알려 준다
+    r = rec.recommend_recipe(TARGET, beans["B01"], brews)
+    limit = rec.clog_limit("B01", brews)
+    assert r.d50_um == (limit // 10 + 1) * 10  # 막힘 한계 바로 위
+    assert r.ey_gap_pct == pytest.approx(r.prediction.ey_pct - TARGET.ey_pct)
+    assert r.ey_gap_pct < -rec.REFIT_EY_TOLERANCE
+    assert r.prediction.tds_cup_pct == pytest.approx(TARGET.tds_pct, abs=0.01)  # 진하기는 가수로 그대로 맞춘다
+
+
+def test_a_target_reached_without_the_time_limit_reports_no_gap(brews, beans):
     r = rec.recommend_recipe(TARGET, beans["B02"], brews)
-    total = sum(len(rec.split_patterns(n - 2)) for n in rec.WATER_RATIOS) * 7  # 미디엄 88–94 °C
-    assert r.checked < total
-    assert r.water_ratio == 11 and r.pattern == (3, 3, 3)  # 평소 레시피 그대로
+    assert r.ey_gap_pct == 0
+
+
+def test_nothing_inside_the_time_window_is_refused_with_reasons(brews, beans, monkeypatch):
+    # 범위 안 레시피가 하나도 없으면 범위 밖 레시피를 고르지 않고, 왜 못 찾았는지 알려 준다
+    monkeypatch.setattr(rec, "GOOD_DRAWDOWN_S", (60.0, 61.0))
+    with pytest.raises(rec.NoRecipeError, match="끊김이 2:00–3:30 밖"):
+        rec.recommend_recipe(TARGET, beans["B02"], brews)
 
 
 def test_unreachable_target_is_refused_with_reasons(brews, beans):
@@ -147,6 +163,17 @@ def test_refit_lengthens_the_interval_for_coarser_grind_and_shortens_it_for_fine
         # 물 양, 붓기 배수, 온도는 그대로다
         assert fit.recipe.water_g == r.recipe.water_g and fit.recipe.water_temp_c == r.recipe.water_temp_c
         assert [p.grams for p in fit.recipe.pours] == [p.grams for p in r.recipe.pours]
+
+
+def test_refit_does_not_choose_an_interval_that_ends_past_the_time_window(brews, beans, monkeypatch):
+    # 굵게 나와 간격을 늘려야 해도, 끊김이 범위를 넘는 간격은 고르지 않는다. 범위의 끝을 제한 없이 고른 간격의
+    # 끊김보다 1초 앞으로 당겨서 확인한다
+    r = rec.recommend_recipe(TARGET, beans["B02"], brews)
+    free = rec.refit_to_grind(r, r.d50_um + 80, TARGET)
+    end = free.prediction.drawdown_end_s - 1
+    monkeypatch.setattr(rec, "GOOD_DRAWDOWN_S", (end - 60, end))
+    held = rec.refit_to_grind(r, r.d50_um + 80, TARGET)
+    assert held.prediction.drawdown_end_s <= end and held.interval_change_s < free.interval_change_s
 
 
 def test_refit_reports_the_gap_when_the_grind_is_too_far_off(brews, beans):
