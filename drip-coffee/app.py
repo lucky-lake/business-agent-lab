@@ -59,6 +59,9 @@ BEAN_TO_BREW = {"name": "bean_name", "roaster": "roaster", "origin": "origin", "
 
 STYLE = """
 <style>
+/* 움직임 값은 토스에서 직접 뽑았다 (10/20, toss.im 코드와 TDS Mobile 문서).
+   튀는 이동 0.2~0.3초 cubic-bezier(0.34, 1.56, 0.64, 1), 부드러운 이동 cubic-bezier(0.4, 0, 0.2, 1), 색 바뀜 0.1초 */
+:root { --dc-spring: cubic-bezier(0.34, 1.56, 0.64, 1); --dc-ease: cubic-bezier(0.4, 0, 0.2, 1); }
 .block-container { max-width: 980px; padding-top: 3.5rem; padding-bottom: 6rem; }
 .stTabs [data-baseweb="tab-list"] { gap: 28px; }
 .stTabs [data-baseweb="tab"] { font-size: 17px; font-weight: 600; padding: 10px 0; }
@@ -79,7 +82,7 @@ STYLE = """
 
 .dc-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 20px 0 8px; }
 .dc-card { background: #FFFFFF; border-radius: 24px; padding: 28px 28px 24px;
-           box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04); animation: dc-rise .5s cubic-bezier(.2, .8, .2, 1) both; }
+           box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04); animation: dc-rise .4s var(--dc-ease) both; }
 .dc-cards.three { grid-template-columns: repeat(3, 1fr); }  /* 큰 카드 하나 + 작은 카드 셋 */
 .dc-card.hero { grid-column: 1 / -1; }
 .dc-card:nth-child(2) { animation-delay: .07s; }
@@ -92,7 +95,7 @@ STYLE = """
 .dc-sub { font-size: 14px; color: #8B95A1; margin-top: 10px; line-height: 1.5; }
 
 .dc-notice { background: #F2F4F6; border-radius: 16px; padding: 16px 20px;
-             font-size: 15px; color: #4E5968; line-height: 1.6; animation: dc-rise .4s ease-out both; }
+             font-size: 15px; color: #4E5968; line-height: 1.6; animation: dc-rise .3s var(--dc-ease) both; }
 .dc-notice.error { background: #FFF1F1; color: #2A2A2A; }
 
 .dc-rows { margin-top: 4px; }
@@ -112,7 +115,34 @@ STYLE = """
 .dc-hexagon .dc-caption { margin: 6px 16px 0; }
 
 @keyframes dc-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { .dc-card, .dc-notice { animation: none; } }
+
+/* 한 잔 내리기: 단계가 바뀌면 새 화면이 살짝 올라오며 나타난다. 단계마다 상자(key)가 바뀌어도 화면 요소는 다시 쓰일 수
+   있어서, 홀수·짝수 단계의 애니메이션 이름을 달리해 매번 다시 재생되게 한다 */
+[class*="st-key-flow-step-"] { animation: .3s var(--dc-ease) both; }
+.st-key-flow-step-1, .st-key-flow-step-3, .st-key-flow-step-5 { animation-name: dc-step-a; }
+.st-key-flow-step-2, .st-key-flow-step-4, .st-key-flow-step-6 { animation-name: dc-step-b; }
+@keyframes dc-step-a { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+@keyframes dc-step-b { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
+
+/* 버튼을 누르면 살짝 작아졌다가 튀듯이 돌아온다 */
+[data-testid^="stBaseButton"] { transition: transform .2s var(--dc-spring), background-color .1s ease-in-out,
+                                            color .1s ease-in-out; }
+[data-testid^="stBaseButton"]:active { transform: scale(.97); }
+
+/* 진행 막대가 다음 단계로 부드럽게 찬다 */
+[data-testid="stProgressBarTrack"] > div { transition: transform .4s var(--dc-ease); }
+
+/* 큰 숫자가 0부터 올라가며 나타난다. 정수만. 화면 읽기 프로그램과 글자 복사는 숨긴 진짜 숫자를 쓴다 */
+@property --dc-n { syntax: "\\3C integer\\3E"; initial-value: 0; inherits: false; }  /* 정수. 꺾쇠를 그대로 쓰면 HTML 정리기가 스타일을 통째로 지워서 CSS 이스케이프로 쓴다 */
+.dc-count { counter-reset: dc-n var(--dc-n); animation: dc-count .7s var(--dc-ease) both; }
+.dc-count::after { content: counter(dc-n); }
+@keyframes dc-count { from { --dc-n: 0; } }
+.dc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* 휴대폰에서 '동작 줄이기'를 켠 사람에게는 움직이지 않는다 (숫자는 바로 최종 값) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
 @media (max-width: 640px) { .dc-cards, .dc-cards.three { grid-template-columns: 1fr; } .dc-value { font-size: 40px; } }
 </style>
 """
@@ -131,10 +161,17 @@ def section(title, caption=""):
     html(f'<div class="dc-section">{escape(title)}</div>' + (f'<div class="dc-caption">{escape(caption)}</div>' if caption else ""))
 
 
+def counted(value):
+    """정수면 0부터 올라가며 나타나는 숫자로, 아니면(2:32, 3.38 같은) 그대로. 진짜 숫자는 숨겨 두어 글자로도 읽힌다."""
+    if not value.isdigit():
+        return escape(value)
+    return f'<span class="dc-count" style="--dc-n:{int(value)}" aria-hidden="true"></span><span class="dc-sr">{value}</span>'
+
+
 def card(label, value, unit, sub="", hero=False):
     return (
         f'<div class="dc-card{" hero" if hero else ""}"><div class="dc-label">{escape(label)}</div>'
-        f'<div class="dc-value">{escape(value)}<span class="dc-unit">{escape(unit)}</span></div>'
+        f'<div class="dc-value">{counted(value)}<span class="dc-unit">{escape(unit)}</span></div>'
         + (f'<div class="dc-sub">{escape(sub)}</div>' if sub else "")
         + "</div>"
     )
@@ -1533,9 +1570,10 @@ def flow_page():
     back_link("flow")
     flow = st.session_state.setdefault("flow", {"step": 1})
     step = flow["step"]
-    flow_header(min(step, len(FLOW_STEPS)))
-    {1: flow_equipment, 2: flow_base_recipe, 3: flow_grind, 4: flow_brew, 5: flow_taste,
-     6: flow_finish}.get(step, flow_later)(flow)
+    with st.container(key=f"flow-step-{step}"):  # 단계가 바뀌면 새 화면이 올라오며 나타난다 (STYLE)
+        flow_header(min(step, len(FLOW_STEPS)))
+        {1: flow_equipment, 2: flow_base_recipe, 3: flow_grind, 4: flow_brew, 5: flow_taste,
+         6: flow_finish}.get(step, flow_later)(flow)
 
 
 def open_page(page):
