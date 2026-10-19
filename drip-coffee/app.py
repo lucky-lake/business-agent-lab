@@ -907,6 +907,98 @@ def new_recipe_view(brews):
     html('<div class="dc-caption">점선은 붓기를 시작한 시각이에요. 고인 물이 0이 되는 순간을 물줄기가 끊기는 순간으로 봐요.</div>')
 
 
+@st.cache_data(show_spinner=False, max_entries=20)
+def cached_recommendation(bean_id, dose_g, log_version):
+    """추천은 0.1–2초 걸려서, 기록 파일이 바뀌지 않았으면(log_version) 지난 결과를 다시 쓴다."""
+    brews = cal.load_brews(BREWS_PATH)
+    target = rec.preference_target(rec.brew_points(brews))
+    return target, rec.recommend_recipe(target, cal.load_beans()[bean_id], brews, dose_g)
+
+
+def pour_rows(recommendation):
+    """붓기 일정: 시각, 이번에 붓는 양(원두의 몇 배), 누적."""
+    items, total = [], 0.0
+    multiples = (rec.BLOOM_MULTIPLE, *recommendation.pattern)
+    for i, (pour, multiple) in enumerate(zip(recommendation.recipe.pours, multiples)):
+        total += pour.grams
+        what = "뜸" if i == 0 else f"{i}번째 붓기"
+        items.append((f"{clock(pour.start_s)} · {what}", f"{pour.grams:g} g (원두의 {multiple}배) · 누적 {total:g} g"))
+    return items
+
+
+def recommend_tab():
+    html(
+        '<div class="dc-lead">원두를 고르면 내 선호 영역의 목표에 맞는 레시피 전체를 추천해요.<br>'
+        "분쇄는 그라인더 클릭이 아니라 대표 크기(µm)로 알려 줘요. 갈고 나서 분쇄도 탭에서 사진으로 확인해요.</div>"
+    )
+    brews = cal.load_brews(BREWS_PATH)
+    beans = cal.load_beans()
+    bean_ids = list(beans)
+    last_bean = brews[-1].bean_id if brews and brews[-1].bean_id in beans else bean_ids[0]
+    c1, c2 = st.columns([2, 1])
+    bean_id = c1.selectbox("원두", bean_ids, index=bean_ids.index(last_bean),
+                           format_func=lambda b: f"{b} {beans[b]['name']} ({beans[b]['roast_level']})", key="rec-bean")
+    dose = c2.number_input("원두 무게 (g)", min_value=5.0, max_value=40.0, value=20.0, step=0.1, format="%.1f",
+                           key="rec-dose")
+    bean = beans[bean_id]
+    if bean["role"] == "시험":
+        notice("시험용 원두예요. 모델을 동결한 뒤 최종 시험에서만 내려요 (MODEL.md 6절).")
+
+    try:
+        with st.spinner("레시피 후보를 계산하는 중..."):
+            target, r = cached_recommendation(bean_id, float(dose), BREWS_PATH.stat().st_mtime)
+    except rec.NoRecipeError as error:
+        notice(str(error), error=True)
+        return
+
+    center = target.personal_center
+    section("목표", "내 선호 영역에서 정한 값이에요 (기록·보정 탭 아래 그림).")
+    html(rows([
+        ("추출수율 · 농도 (가수 후)", f"{target.ey_pct:.1f}% · {target.tds_pct:.2f}%"),
+        ("근거", f"좋았던 잔 {target.n_liked}잔의 중심({center[0]:.1f}%, {center[1]:.2f}%)과 골든컵(20%, 1.25%)을 섞음"
+         if center else "아직 좋았던 잔이 없어 골든컵 중심을 써요"),
+    ]))
+
+    recipe, prediction = r.recipe, r.prediction
+    low, high = r.temp_range
+    section("추천 레시피", f"원두 {recipe.dose_g:g} g · 물 {recipe.water_g:g} g (원두의 {r.water_ratio}배, "
+                         f"{rec.pattern_text(r.pattern)}배) · {r.interval_s:g}초 간격")
+    html(
+        '<div class="dc-cards three">'
+        + card("분쇄 대표 크기", f"{r.d50_um:.0f}", "µm", "갈고 나서 분쇄도 탭에서 사진으로 재 보세요.", hero=True)
+        + card("물 온도", f"{recipe.water_temp_c:g}", "°C", f"{bean['roast_level']} 범위 {low}–{high} °C 안에서 골랐어요.")
+        + card("물", f"{recipe.water_g:g}", "g", f"원두의 {r.water_ratio}배를 아래 일정대로 나눠 부어요.")
+        + card("가수", f"{recipe.bypass_g:g}", "g", "물줄기가 끊겨 드리퍼를 뺀 뒤 더하는 물이에요.")
+        + "</div>"
+    )
+    section("붓기 일정", "붓는 방식(센터 푸어, 원형 푸어 등)은 평소대로 해요. 모델은 붓는 시각과 양만 계산해요.")
+    html(rows(pour_rows(r)))
+
+    section("예상", "보정 전 모델이라 시간은 실제와 다를 수 있어요. 끊김은 예상 시각이 아니라 물줄기가 끊기는 순간에 드리퍼를 빼요.")
+    html(
+        '<div class="dc-cards three">'
+        + card("물줄기가 끊기는 시각", clock(prediction.drawdown_end_s), "", "이때쯤 드리퍼를 빼게 돼요.", hero=True)
+        + card("음료 (가수 전)", f"{prediction.beverage_g:.0f}", "g", "가수하기 전에 잰 무게예요.")
+        + card("추출수율", f"{prediction.ey_pct:.1f}", "%", f"목표 {target.ey_pct:.1f}%")
+        + card("농도 (가수 후)", f"{prediction.tds_cup_pct:.2f}", "%", f"목표 {target.tds_pct:.2f}%")
+        + "</div>"
+    )
+    st.altair_chart(timeline_chart(prediction, recipe), width="stretch")
+
+    with st.expander("왜 이 레시피인가요?"):
+        usual = r.usual
+        html(rows([
+            ("출발점", usual.source),
+            ("출발점 레시피", f"원두의 {usual.water_ratio:g}배, {rec.pattern_text(usual.pattern)}배, "
+                          f"{usual.interval_s:g}초 간격, {usual.temp_c:g} °C"),
+            ("막힘 한계", f"{r.clog_limit_um:.0f} µm보다 고운 분쇄는 뺐어요 (같은 원두가 막혔던 크기)"
+             if r.clog_limit_um else "이 원두는 막힌 기록이 없어요"),
+            ("계산한 후보", f"{r.checked}개"),
+        ]))
+        html('<div class="dc-caption">후보마다 목표 추출수율에 맞는 분쇄 크기를 찾고, 가수량으로 농도를 맞춰요. '
+             "그중 끊김이 2:00–3:30 안이고 출발점과 가장 덜 다른 레시피를 골라요 (MODEL.md 9.2).</div>")
+
+
 st.set_page_config(page_title="Drip Coffee", layout="wide")
 html(STYLE)
 html('<div class="dc-eyebrow">Drip Coffee</div><div class="dc-title">핸드드립 추출 분석·추천</div>')
@@ -920,7 +1012,7 @@ with tab_predict:
     predict_tab()
 
 with tab_recommend:
-    notice("목표 농도와 추출수율에 맞는 레시피를 추천하는 화면이에요. (준비 중)")
+    recommend_tab()
 
 with tab_log:
     log_tab()
