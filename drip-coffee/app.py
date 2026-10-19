@@ -1,6 +1,8 @@
 """핸드드립 추출 분석·추천 도구의 화면 (Streamlit).
 
 화면은 입력과 표시만 맡고, 계산은 dripcoffee 패키지에서 한다.
+구조: 첫 화면의 '시작하기'로 한 잔 내리기 흐름(원두와 장비 → 기초 추천 → 분쇄 확인 → 내리기와 기록 → 맛 평가 →
+마무리)을 한 화면씩 따라간다. '내 기록 보기'와 '모델 점검'은 첫 화면의 작은 링크로 들어간다.
 디자인은 토스(Toss) 스타일을 따른다: 흰 배경, 포인트 컬러 하나(파랑)와 무채색, 은은한 그림자,
 큰 숫자와 작은 단위·설명, 테두리와 구분선 대신 넓은 여백. 색과 글꼴은 .streamlit/config.toml에 있다.
 실행: streamlit run app.py
@@ -61,6 +63,10 @@ STYLE = """
 [data-testid="stExpander"] summary p { font-size: 16px; font-weight: 600; }
 
 .dc-eyebrow { font-size: 15px; font-weight: 600; color: #3182F6; margin-bottom: 6px; }
+.dc-home { margin: 8vh 0 28px; }
+[data-testid="stBaseButton-primary"] { min-height: 54px; border-radius: 16px; }  /* 토스처럼 크게 누르는 버튼 */
+[data-testid="stBaseButton-primary"] p { font-size: 17px; font-weight: 700; }
+.dc-hero { font-size: 40px; font-weight: 800; color: #2A2A2A; letter-spacing: -0.03em; line-height: 1.25; margin: 4px 0 8px; }
 .dc-title { font-size: 32px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; line-height: 1.3; }
 .dc-lead { font-size: 16px; color: #4E5968; line-height: 1.6; margin: 4px 0 28px; }
 .dc-section { font-size: 22px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; margin: 48px 0 4px; }
@@ -370,7 +376,7 @@ def cell(value, form="{:g}"):
 
 
 def saved_grind(brew_id):
-    """분쇄도 탭에서 이 추출번호로 저장한 측정 중 가장 최근 것. 없으면 None."""
+    """'사진만 재기'에서 이 추출번호로 저장한 측정 중 가장 최근 것. 없으면 None."""
     matches = [r for r in ga.load_profiles(PROFILE_DIR) if brew_id and r["brew_id"] == brew_id]
     return matches[-1] if matches else None
 
@@ -566,7 +572,7 @@ def preference_section(brews):
     center = target.personal_center
     html(
         '<div class="dc-cards">'
-        + card("추천 목표 추출수율", f"{target.ey_pct:.1f}", "%", "추천 탭은 이 값에 맞는 레시피를 찾아요.", hero=True)
+        + card("추천 목표 추출수율", f"{target.ey_pct:.1f}", "%", "추천은 이 값에 맞는 레시피를 찾아요.", hero=True)
         + card("추천 목표 농도", f"{target.tds_pct:.2f}", "%", "가수한 뒤의 농도예요.")
         + card("중심을 당긴 잔", f"{target.n_liked}", "잔",
                f"내 선호 중심은 {center[0]:.1f}%, {center[1]:.2f}%예요." if center else "아직 없어서 골든컵 중심을 목표로 써요.")
@@ -582,10 +588,11 @@ def preference_section(brews):
         html(f'<div class="dc-caption">계산에서 뺀 잔: {escape(", ".join(skipped))}</div>')
 
 
-def log_tab():
+def log_form():
+    """한 잔 기록 입력 양식. '내 기록' 화면의 '직접 기록하기'에 들어간다."""
     html(
-        '<div class="dc-lead">한 잔을 내린 뒤 결과를 적어 주세요. 저장하면 추출 기록 끝에 더해지고, '
-        "모델 보정과 내 선호 영역 계산에 쓰여요.<br>측정 방법과 맛 기준은 docs/BREW_PROTOCOL.md와 같아요.</div>"
+        '<div class="dc-caption">흐름 밖에서 내린 잔을 적어요. 저장하면 추출 기록 끝에 더해지고, '
+        "모델 보정과 내 선호 영역 계산에 쓰여요. 측정 방법과 맛 기준은 docs/BREW_PROTOCOL.md와 같아요.</div>"
     )
     saved = st.session_state.pop("log_saved", None)
     if saved:
@@ -598,9 +605,9 @@ def log_tab():
     def key(name):
         return f"log-{form}-{name}"
 
-    prefill = st.session_state.get("log_prefill")  # 추천 탭의 '이 레시피로 기록하기'
+    prefill = st.session_state.get("log_prefill")  # 추천 화면의 '이 레시피로 기록하기'
     if prefill:
-        notice(f"추천 탭의 레시피를 채워 뒀어요 (추천 분쇄 {prefill['d50_um']:.0f} µm). "
+        notice(f"추천 레시피를 채워 뒀어요 (추천 분쇄 {prefill['d50_um']:.0f} µm). "
                "다르게 내렸다면 고쳐 주세요. 분쇄 대표 크기 칸에는 추천값이 아니라 사진으로 잰 값을 넣어요.")
         if st.button("채운 레시피 지우기", key=key("clear-prefill")):
             st.session_state.pop("log_prefill")
@@ -643,7 +650,7 @@ def log_tab():
     d50 = st.number_input("분쇄 대표 크기 (µm, 선택)", min_value=0.0, step=1.0, format="%.0f",
                           value=float(round(grind["d50_um"])) if grind else None, key=key(f"d50-{brew_id}"))
     if grind:
-        html(f'<div class="dc-caption">분쇄도 탭에서 이 추출번호로 저장한 측정을 불러왔어요 '
+        html(f'<div class="dc-caption">“사진만 재기”에서 이 추출번호로 저장한 측정을 불러왔어요 '
              f"(사진 {grind['n_photos']}장, {grind['grinder_clicks']}클릭).</div>")
     else:
         html('<div class="dc-caption">이 추출번호로 저장한 분쇄 측정이 없어요. 비워 두면 같은 원두·같은 클릭으로 간 '
@@ -710,9 +717,6 @@ def log_tab():
             st.session_state.pop("log_prefill", None)
             st.rerun()
 
-    section("최근 기록", f"모두 {len(brews)}잔")
-    recent_brews_table(brews)
-    preference_section(brews)
 
 
 def profile_label(record):
@@ -736,7 +740,7 @@ def grind_input():
              "그대로 써요.</div>")
         return em.grind_from_diameters(record["diameters_um"])
     if way == ways[0]:
-        notice("저장한 분쇄 측정이 없어요. 분쇄도 탭에서 측정을 저장하거나, 대표 크기를 직접 넣어 주세요.")
+        notice("저장한 분쇄 측정이 없어요. '사진만 재기'에서 측정을 저장하거나, 대표 크기를 직접 넣어 주세요.")
     d50 = st.number_input("분쇄 대표 크기 (µm)", min_value=300.0, max_value=3000.0, value=1200.0, step=10.0,
                           format="%.0f", key="predict-d50")
     html('<div class="dc-caption">대표 크기만 알 때는 실제 사진 측정과 비슷한 폭의 분포(대부분의 범위가 대표 크기의 '
@@ -781,20 +785,6 @@ def timeline_chart(prediction, recipe, actual_end=None):
         layers += alt.Chart(real).mark_text(align="left", baseline="top", dx=4, y=40, fontSize=12, fontWeight=700,
                                             color=GRAY_DARK, font=FONT).encode(x=x, text="label:N")
     return layers.properties(height=300).configure_view(stroke=None).configure(font=FONT)
-
-
-def predict_tab():
-    html(
-        '<div class="dc-lead">분쇄와 레시피를 넣으면 물줄기가 끊기는 시각, 음료 무게, 추출수율, 농도를 미리 계산해요.<br>'
-        "굴절계로 잰 값이 아니라 모델로 계산한 값이에요. 식과 근거는 docs/MODEL.md에 있어요.</div>"
-    )
-    brews = cal.load_brews(BREWS_PATH)
-    views = ["새 레시피", "기록한 잔과 비교"]
-    view = st.segmented_control("보기", views, default=views[0], key="predict-view") or views[0]
-    if view == views[1]:
-        compare_view(brews)
-    else:
-        new_recipe_view(brews)
 
 
 def gap(error, actual_text, unit, fewer, more):
@@ -953,7 +943,7 @@ def pour_rows(recommendation):
 def recommend_tab():
     html(
         '<div class="dc-lead">원두를 고르면 내 선호 영역의 목표에 맞는 레시피 전체를 추천해요.<br>'
-        "분쇄는 그라인더 클릭이 아니라 대표 크기(µm)로 알려 줘요. 갈고 나서 분쇄도 탭에서 사진으로 확인해요.</div>"
+        "분쇄는 그라인더 클릭이 아니라 대표 크기(µm)로 알려 줘요. 갈고 나서 사진으로 확인해요.</div>"
     )
     brews = cal.load_brews(BREWS_PATH)
     beans = cal.load_beans()
@@ -976,7 +966,7 @@ def recommend_tab():
         return
 
     center = target.personal_center
-    section("목표", "내 선호 영역에서 정한 값이에요 (기록·보정 탭 아래 그림).")
+    section("목표", "내 선호 영역에서 정한 값이에요 ('내 기록 보기'의 그림).")
     html(rows([
         ("추출수율 · 농도 (가수 후)", f"{target.ey_pct:.1f}% · {target.tds_pct:.2f}%"),
         ("근거", f"좋았던 잔 {target.n_liked}잔의 중심({center[0]:.1f}%, {center[1]:.2f}%)과 골든컵(20%, 1.25%)을 섞음"
@@ -989,7 +979,7 @@ def recommend_tab():
                          f"{rec.pattern_text(r.pattern)}배) · {r.interval_s:g}초 간격")
     html(
         '<div class="dc-cards three">'
-        + card("분쇄 대표 크기", f"{r.d50_um:.0f}", "µm", "갈고 나서 분쇄도 탭에서 사진으로 재 보세요.", hero=True)
+        + card("분쇄 대표 크기", f"{r.d50_um:.0f}", "µm", "갈고 나서 사진으로 재 보세요.", hero=True)
         + card("물 온도", f"{recipe.water_temp_c:g}", "°C", f"{bean['roast_level']} 범위 {low}–{high} °C 안에서 골랐어요.")
         + card("물", f"{recipe.water_g:g}", "g", f"원두의 {r.water_ratio}배를 아래 일정대로 나눠 부어요.")
         + card("가수", f"{recipe.bypass_g:g}", "g", "물줄기가 끊겨 드리퍼를 뺀 뒤 더하는 물이에요.")
@@ -1016,8 +1006,9 @@ def recommend_tab():
             # 10/25 점검(추천 레시피 3잔 이상)과 나중 분석을 위해 무엇을 추천했는지 함께 남긴다
             "followed": f"예 (추천 {r.d50_um:.0f} µm, 목표 {target.ey_pct:.1f}% · {target.tds_pct:.2f}%)",
         }
-        st.session_state["log_form"] = st.session_state.get("log_form", 0) + 1  # 기록 탭 입력칸을 새로 만들어 채운다
-        notice("기록·보정 탭에 이 레시피를 채워 뒀어요. 내린 뒤 결과와 맛만 적으면 돼요.")
+        st.session_state["log_form"] = st.session_state.get("log_form", 0) + 1  # 입력칸을 새로 만들어 채운다
+        st.session_state["page"] = "history"  # '내 기록'의 '직접 기록하기'로 바로 간다
+        st.rerun()
 
     with st.expander("왜 이 레시피인가요?"):
         usual = r.usual
@@ -1142,42 +1133,87 @@ def flow_base_recipe(flow):
 
 
 def flow_later(flow):
-    """3단계부터는 준비 중. 지금은 도구 탭으로 이어서 한다."""
-    notice("3단계(사진으로 분쇄 확인 → 레시피 맞추기)부터는 준비 중이에요. 지금은 '분쇄도 측정' 탭에서 사진을 재고, "
-           "'레시피 추천' 탭의 '이 레시피로 기록하기'로 기록해 주세요.")
+    """3단계부터는 준비 중. 지금은 '모델 점검'과 '내 기록 보기'로 이어서 한다."""
+    notice("3단계(사진으로 분쇄 확인 → 레시피 맞추기)부터는 준비 중이에요. 지금은 첫 화면의 '모델 점검 → 사진만 재기'로 "
+           "사진을 재고, '내 기록 보기 → 직접 기록하기'로 기록해 주세요.")
     c1, c2 = st.columns([1, 2])
     if c1.button("이전", width="stretch", key="flow-back-3"):
         go_to(2)
-    if c2.button("처음으로", width="stretch", key="flow-restart"):
-        st.session_state["flow"] = {"step": 1}
-        st.rerun()
+    c2.button("처음으로", width="stretch", key="flow-restart", on_click=open_page, args=("home",))
 
 
-def flow_tab():
+def flow_page():
+    back_link("flow")
     flow = st.session_state.setdefault("flow", {"step": 1})
     step = flow["step"]
     flow_header(min(step, 3))
     {1: flow_equipment, 2: flow_base_recipe}.get(step, flow_later)(flow)
 
 
+def open_page(page):
+    """화면을 바꾼다. 한 잔 내리기는 늘 1단계부터 시작한다."""
+    st.session_state["page"] = page
+    if page == "flow":
+        st.session_state["flow"] = {"step": 1}
+
+
+def back_link(name):
+    st.button("← 처음으로", type="tertiary", key=f"{name}-home", on_click=open_page, args=("home",))
+
+
+def page_header(name, title, lead):
+    back_link(name)
+    html(f'<div class="dc-eyebrow">Drip Coffee</div><div class="dc-title">{escape(title)}</div>'
+         f'<div class="dc-lead">{lead}</div>')
+
+
+def home_page():
+    """첫 화면: '시작하기' 하나를 크게 두고, 나머지는 작은 링크로."""
+    html('<div class="dc-home"><div class="dc-eyebrow">Drip Coffee</div><div class="dc-hero">오늘의 한 잔</div>'
+         '<div class="dc-lead">원두와 장비만 알려 주면 레시피부터 기록까지 안내해요.<br>'
+         "사진으로 잰 분쇄와 내 맛 기록으로, 나에게 맞는 한 잔을 찾아가요.</div></div>")
+    st.button("시작하기", type="primary", width="stretch", key="home-start", on_click=open_page, args=("flow",))
+    brews = cal.load_brews(BREWS_PATH)
+    if brews:
+        last = brews[-1]
+        score = f"만족도 {last.quality_score:.2f}" if last.quality_score is not None else "맛 점수 없음"
+        html(f'<div class="dc-caption" style="text-align:center; margin-top:16px">지난 한 잔 · {escape(last.brew_id)} · '
+             f"{escape(last.bean_id)} {escape(last.row.get('bean_name', ''))} · {score}</div>")
+    c1, c2 = st.columns(2)
+    c1.button("내 기록 보기", type="tertiary", width="stretch", key="home-history", on_click=open_page, args=("history",))
+    c2.button("모델 점검", type="tertiary", width="stretch", key="home-check", on_click=open_page, args=("check",))
+
+
+def history_page():
+    """내 기록: 내 선호 영역, 기록한 잔들, 흐름 밖에서 내린 잔을 적는 '직접 기록하기'."""
+    page_header("history", "내 기록", "기록한 잔과 내 선호 영역이에요. 흐름 밖에서 내린 잔은 아래 '직접 기록하기'로 적어요.")
+    brews = cal.load_brews(BREWS_PATH)
+    preference_section(brews)
+    section("기록한 잔", f"모두 {len(brews)}잔, 최근 순서")
+    recent_brews_table(brews, limit=len(brews))
+    writing = "log_prefill" in st.session_state or "log_saved" in st.session_state
+    with st.expander("직접 기록하기", expanded=writing):
+        log_form()
+
+
+def check_page():
+    """모델 점검: 예측과 실제 비교, 레시피 직접 계산, 추천 계산 자세히, 커피 없이 분쇄 사진만 재기."""
+    page_header("check", "모델 점검", "모델이 실제 잔을 얼마나 맞히는지 보고, 레시피를 직접 계산해 봐요. "
+                "굴절계로 잰 값이 아니라 모델로 계산한 값이에요. 식과 근거는 docs/MODEL.md에 있어요.")
+    views = ["예측과 실제", "레시피 계산", "추천 자세히", "사진만 재기"]
+    view = st.segmented_control("보기", views, default=views[0], key="check-view") or views[0]
+    brews = cal.load_brews(BREWS_PATH)
+    if view == "예측과 실제":
+        compare_view(brews)
+    elif view == "레시피 계산":
+        new_recipe_view(brews)
+    elif view == "추천 자세히":
+        recommend_tab()
+    else:
+        grind_tab()
+
+
 st.set_page_config(page_title="Drip Coffee", layout="wide")
 html(STYLE)
-html('<div class="dc-eyebrow">Drip Coffee</div><div class="dc-title">핸드드립 추출 분석·추천</div>')
-
-tab_flow, tab_grind, tab_predict, tab_recommend, tab_log = st.tabs(
-    ["한 잔 내리기", "분쇄도 측정", "추출 예측", "레시피 추천", "기록·보정"])
-
-with tab_flow:
-    flow_tab()
-
-with tab_grind:
-    grind_tab()
-
-with tab_predict:
-    predict_tab()
-
-with tab_recommend:
-    recommend_tab()
-
-with tab_log:
-    log_tab()
+PAGES = {"home": home_page, "flow": flow_page, "history": history_page, "check": check_page}
+PAGES[st.session_state.setdefault("page", "home")]()
