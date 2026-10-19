@@ -89,7 +89,22 @@ def test_first_time_user_with_no_beans_or_records(monkeypatch, empty_files):
 def test_history_without_tasted_cups_explains_the_golden_cup(monkeypatch, empty_files):
     at = start(monkeypatch, *empty_files)
     button(at, "home-history").click().run()
+    assert not at.exception and has_text(at, "아직 기록한 잔이 없어요")
+    next(w for w in at.get("button_group") if w.key == "history-view").set_value("내 선호 영역").run()
     assert not at.exception and has_text(at, "아직 맛을 매긴 잔이 없어서 골든컵")
+
+
+def test_history_lists_cups_by_day_and_shows_the_preference_chart(monkeypatch, my_files):
+    # 기록한 잔: 날짜별 목록. 표시가 있는 잔과 사진이 없는 잔은 꼬리표를 단다. 내 선호 영역: 그림과 접힌 설명
+    from dripcoffee import calibration as cal
+    brews = cal.load_brews(my_files[0])
+    at = start(monkeypatch, *my_files)
+    button(at, "home-history").click().run()
+    assert not at.exception and has_text(at, f"{len(brews)}잔을 기록했어요") and has_text(at, "평균 만족도")
+    assert has_text(at, "10월 19일") and has_text(at, "막힘") and has_text(at, "사진 없음")
+    next(w for w in at.get("button_group") if w.key == "history-view").set_value("내 선호 영역").run()
+    assert not at.exception and has_text(at, "다음 잔 목표") and not has_text(at, "골든컵 중심</span>")
+    assert has_text(at, "내 선호 중심")  # 그림에서 뺀 중심 값은 '목표는 어떻게 정해져요?'에 글로 남는다
 
 
 def test_same_bean_row_fills_the_last_bean_but_not_the_filter(monkeypatch, my_files):
