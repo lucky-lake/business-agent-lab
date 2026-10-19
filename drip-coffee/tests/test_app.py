@@ -25,9 +25,10 @@ def button(at, key):
     return next(b for b in at.button if b.key == key)
 
 
-def start(monkeypatch, brews, beans):
+def start(monkeypatch, brews, beans, equipment=None):
     monkeypatch.setenv("DRIP_COFFEE_BREWS", str(brews))
     monkeypatch.setenv("DRIP_COFFEE_BEANS", str(beans))
+    monkeypatch.setenv("DRIP_COFFEE_EQUIPMENT", str(equipment or DATA_DIR / "equipment.csv"))
     return AppTest.from_file(APP, default_timeout=60).run()
 
 
@@ -79,9 +80,12 @@ def test_bean_starts_blank_and_must_be_chosen(monkeypatch, my_files):
     button(at, "home-start").click().run()
     assert at.selectbox(key="flow-bean").value is None  # 지난 원두가 저절로 넘어가지 않는다
     assert at.selectbox(key="flow-grinder").value == "메버릭1"  # 장비는 지난 잔 것을 채운다
+    assert at.selectbox(key="flow-dripper").value == "하리오 V60 02"  # 목록에 하나뿐인 드리퍼는 채운다
+    assert at.selectbox(key="flow-filter").value is None  # 필터는 장소마다 달라서 매번 고른다
+    assert at.selectbox(key="flow-filter").options == ["하리오 화이트", "홀츠클로츠 무표백"]  # 목록에서만 고른다
     assert not has_text(at, "로스팅")  # 원두를 고르기 전에는 디게싱 안내가 없다
     # 다 고르기 전에는 다음 버튼 대신 무엇을 고르면 되는지 보여 준다 (다 고르면 버튼이 아래에서 올라온다)
-    assert not any(b.key == "flow-next-1" for b in at.button) and has_text(at, "원두·필터·그라인더를 고르면")
+    assert not any(b.key == "flow-next-1" for b in at.button) and has_text(at, "원두·드리퍼·필터·그라인더를 고르면")
     at.selectbox(key="flow-bean").set_value("B02").run()
     assert has_text(at, "디게싱") or has_text(at, "마시기 좋은 때")
     at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백").run()

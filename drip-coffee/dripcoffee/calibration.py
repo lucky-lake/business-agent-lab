@@ -6,6 +6,7 @@ load_brews로 읽은 기록을 쓴다. 측정 방법과 맛 기준은 docs/BREW_
 import csv
 import math
 import re
+from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
@@ -16,6 +17,7 @@ from dripcoffee.extraction_model import (DEFAULT_PARAMS, Prediction, Recipe, Rec
 
 BREWS_PATH = DATA_DIR / "brews.csv"
 BEANS_PATH = DATA_DIR / "beans.csv"
+EQUIPMENT_PATH = DATA_DIR / "equipment.csv"
 
 # 배전도: 앱에서 고르는 이름과, 원두 목록에 섞여 있는 다른 표기
 ROAST_LEVELS = ("라이트", "미디엄 라이트", "미디엄", "미디엄 다크", "다크")
@@ -29,8 +31,12 @@ BEAN_ROLES = ("학습", "검증", "시험", "여유", "일반")  # 앱에서 더
 REST_DAYS = {"라이트": (3, 7, 45), "미디엄 라이트": (3, 7, 40), "미디엄": (3, 7, 35), "미디엄 다크": (3, 7, 30),
              "다크": (2, 5, 25)}
 
-# 필터 종이. 종이마다 물 빠지는 속도가 다를 수 있어 잔마다 적는다 (10/19). 목록 밖의 필터도 적을 수 있다.
-FILTERS = ("하리오 화이트", "홀츠클로츠 무표백")
+# 장비 (10/20): 드리퍼·필터·그라인더는 장비 목록(equipment.csv)에서만 고르고, 새 장비는 앱의 '장비 추가'로 더한다.
+# 이름을 직접 치는 칸을 두면 일부만 치고 Enter를 눌러 '홀츠' 같은 새 이름이 생겨서다.
+# 필터 종이는 종이마다 물 빠지는 속도가 다를 수 있어 잔마다 적는다 (10/19).
+EQUIPMENT_KINDS = ("드리퍼", "필터", "그라인더")
+# 드리퍼 모양. 물 흐름 모델은 V60 같은 원뿔형을 기준으로 계산한다(MODEL.md 2절). 다른 모양이면 앱이 알려 준다.
+DRIPPER_SHAPES = ("원뿔형", "바닥이 평평한 형", "잘 모르겠어요")
 
 # 표시(flag): 정상이 아닌 잔. 표시한 잔은 보정과 선호 영역에서 뺀다.
 FLAGS = ("연습", "흘림", "막힘", "측정실수", "기타")
@@ -252,6 +258,44 @@ def roast_name(roast_level):
     """원두 목록의 배전도 표기를 앱의 다섯 이름 중 하나로. 모르는 표기는 그대로 돌려준다."""
     name = str(roast_level).strip()
     return ROAST_ALIASES.get(name, name)
+
+
+class EquipmentError(ValueError):
+    """장비를 추가할 수 없을 때, 사용자에게 보여줄 이유를 담는 예외."""
+
+
+def load_equipment(path=EQUIPMENT_PATH):
+    """장비 목록을 {종류: [{'name', 'detail'}, ...]}로 읽는다. 순서는 파일에 적은 순서. 파일이 없으면 빈 목록."""
+    equipment = {kind: [] for kind in EQUIPMENT_KINDS}
+    if not Path(path).exists():
+        return equipment
+    with open(path, encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f):
+            equipment.setdefault(row["kind"], []).append({"name": row["name"], "detail": row.get("detail", "")})
+    return equipment
+
+
+def append_equipment(kind, name, detail="", path=EQUIPMENT_PATH):
+    """새 장비를 확인한 뒤 장비 목록 끝에 더한다. 문제가 있으면 EquipmentError를 내고 아무것도 쓰지 않는다.
+    드리퍼는 모양(DRIPPER_SHAPES)을 함께 적는다."""
+    name, detail = _text(name), _text(detail)
+    if kind not in EQUIPMENT_KINDS:
+        raise EquipmentError(f"장비 종류는 {', '.join(EQUIPMENT_KINDS)} 중 하나예요.")
+    if not name:
+        raise EquipmentError("이름을 적어 주세요.")
+    if kind == "드리퍼" and detail not in DRIPPER_SHAPES:
+        raise EquipmentError("드리퍼 모양을 골라 주세요.")
+    if any(e["name"].casefold() == name.casefold() for e in load_equipment(path)[kind]):
+        raise EquipmentError(f"이미 있는 {kind}예요: {name}")
+    path = Path(path)
+    if not path.exists() or not path.read_bytes().strip():
+        path.write_text("kind,name,detail\n", encoding="utf-8")
+    with open(path, "rb") as f:
+        ends_with_newline = f.read().endswith(b"\n")
+    with open(path, "a", encoding="utf-8", newline="") as f:
+        if not ends_with_newline:
+            f.write("\n")
+        csv.writer(f, lineterminator="\n").writerow([kind, name, detail])
 
 
 class BeanError(ValueError):

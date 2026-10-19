@@ -30,6 +30,7 @@ CLICK_TABLE = DATA_DIR / "reference" / "maverick_click_table.csv"
 # 추출 기록과 원두 목록. 테스트·미리보기에서는 환경 변수로 다른 파일을 쓰게 해 실제 기록을 건드리지 않는다.
 BREWS_PATH = Path(os.environ.get("DRIP_COFFEE_BREWS", cal.BREWS_PATH))
 BEANS_PATH = Path(os.environ.get("DRIP_COFFEE_BEANS", cal.BEANS_PATH))
+EQUIPMENT_PATH = Path(os.environ.get("DRIP_COFFEE_EQUIPMENT", cal.EQUIPMENT_PATH))
 
 BRAND = "#3182F6"  # 포인트 컬러는 이것 하나만 쓴다
 TEXT = "#2A2A2A"
@@ -756,16 +757,14 @@ def log_form():
     if bean["role"] == "시험":
         notice("시험용 원두예요. 모델을 동결한 뒤 최종 시험에서만 써요 (MODEL.md 6절).")
 
+    equipment = cal.load_equipment(EQUIPMENT_PATH)
     c1, c2, c3 = st.columns(3)
     roast_date = c1.text_input("로스팅 날짜", bean["roast_date"], key=key(f"roast-{bean_id}"))
-    dripper = c2.text_input("드리퍼", previous.row.get("dripper", "V60") if previous else "V60", key=key("dripper"))
-    # 필터는 장소마다 달라서 지난 잔 값을 미리 채우지 않고 매번 고르게 한다
-    filters = list(dict.fromkeys([*cal.FILTERS, *(b.filter_paper for b in brews if b.filter_paper)]))
-    filter_paper = c3.selectbox("필터", filters, index=None, placeholder="필터를 골라 주세요", accept_new_options=True,
-                                help="종이마다 물 빠지는 속도가 달라질 수 있어요. 목록에 없으면 이름을 적어요.",
-                                key=key("filter"))
+    dripper = equipment_select(c2, equipment, "드리퍼", key("dripper"), previous.row.get("dripper") if previous else None)
+    # 필터는 장소마다 달라서 지난 잔 값을 미리 채우지 않고 매번 고르게 한다 (장비는 한 잔 내리기 1단계에서 더한다)
+    filter_paper = equipment_select(c3, equipment, "필터", key("filter"))
     c1, c2 = st.columns(2)
-    grinder = c1.text_input("그라인더", previous.grinder if previous else "메버릭1", key=key("grinder"))
+    grinder = equipment_select(c1, equipment, "그라인더", key("grinder"), previous.grinder if previous else None)
     clicks = c2.number_input("클릭 수", min_value=0, max_value=180, step=1,
                              value=previous.grinder_clicks if previous and previous.grinder_clicks is not None else 95,
                              key=key(f"clicks-{bean_id}"))
@@ -824,8 +823,8 @@ def log_form():
             record = {
                 "brew_id": brew_id, "date": brew_date.isoformat(), "bean_id": bean_id,
                 **{brew_col: bean[bean_col] for bean_col, brew_col in BEAN_TO_BREW.items()},
-                "roast_date": roast_date, "dripper": dripper, "filter": filter_paper or "",
-                "grinder": grinder, "grinder_clicks": int(clicks),
+                "roast_date": roast_date, "dripper": dripper or "", "filter": filter_paper or "",
+                "grinder": grinder or "", "grinder_clicks": int(clicks),
                 "grind_d50_um": d50 or None, "recipe": recipe_name, "dose_g": dose, "water_temp_c": temp,
                 "pours": pours, "drawdown_end_s": cal.parse_clock(drawdown), "beverage_g": beverage,
                 "bypass_g": bypass, **taste, "memo": memo, "flag": flag,
@@ -1240,6 +1239,64 @@ def add_bean_dialog():
             st.rerun()
 
 
+# 1단계에서 장비 종류마다 고르는 칸의 key
+EQUIPMENT_KEYS = {"드리퍼": "flow-dripper", "필터": "flow-filter", "그라인더": "flow-grinder"}
+EQUIPMENT_HELP = {
+    "드리퍼": "물을 붓는 깔때기 모양 도구예요. 목록에 없으면 아래 '＋ 장비 추가'로 더해요.",
+    "필터": "드리퍼에 끼우는 종이예요. 종이마다 물 빠지는 속도가 달라질 수 있어 기록에 함께 남겨요.",
+    "그라인더": "원두를 가는 기계예요. 클릭 수를 알려 줄 때 써요.",
+}
+
+
+def equipment_select(where, equipment, kind, key, chosen=None):
+    """장비 목록에서만 고르는 칸. 고른 것이 없고 그 종류가 하나뿐이면 그것을 채운다.
+    이름을 직접 치는 칸은 두지 않는다(일부만 치고 Enter를 누르면 '홀츠' 같은 새 이름이 생겨서). 새 장비는 '장비 추가'로."""
+    names = [e["name"] for e in equipment[kind]]
+    if chosen not in names:
+        chosen = names[0] if len(names) == 1 else None
+    return where.selectbox(kind, names, index=names.index(chosen) if chosen else None,
+                           placeholder=f"{kind}를 골라 주세요", key=key, help=EQUIPMENT_HELP[kind])
+
+
+def dripper_shape(equipment, dripper):
+    return next((e["detail"] for e in equipment["드리퍼"] if e["name"] == dripper), "")
+
+
+NOT_CONE = "이 앱의 물 빠짐 계산은 V60 같은 원뿔형 드리퍼를 기준으로 해요. 다른 모양은 시간 예측이 많이 다를 수 있어요."
+
+
+@st.dialog("장비 추가")
+def add_equipment_dialog():
+    """장비 목록에 없는 드리퍼·필터·그라인더를 더한다. 저장하면 1단계 칸에서 바로 고른 상태가 된다."""
+    html('<div class="dc-caption">오늘 쓰는 도구를 더해 두면 다음부터 목록에서 고를 수 있어요.</div>')
+    kind = st.segmented_control("종류", cal.EQUIPMENT_KINDS, default=cal.EQUIPMENT_KINDS[0], key="ne-kind")
+    kind = kind or cal.EQUIPMENT_KINDS[0]
+    examples = {"드리퍼": "예: 칼리타 웨이브 185", "필터": "예: 칼리타 웨이브 필터 185", "그라인더": "예: 코만단테 C40"}
+    name = st.text_input("이름", key=f"ne-name-{kind}", placeholder=examples[kind])
+    detail = ""
+    if kind == "드리퍼":
+        detail = st.radio("모양", cal.DRIPPER_SHAPES, key="ne-shape", horizontal=True,
+                          help="옆에서 봤을 때 아래로 갈수록 좁아지면 원뿔형, 바닥이 넓고 평평하면 평평한 형이에요.")
+        if detail != "원뿔형":
+            notice(NOT_CONE)
+    elif kind == "그라인더":
+        if name.strip() and cal.table_clicks(1000, name) is not None:
+            html('<div class="dc-caption">클릭표가 있는 그라인더예요. 처음에는 클릭표로 시작 클릭을 알려 드려요.</div>')
+        else:
+            html('<div class="dc-caption">처음 쓰는 그라인더는 클릭 수를 알려 줄 근거가 없어요. 가루 사진으로 잰 기록이 '
+                 "쌓이면 몇 클릭에서 시작하면 되는지 알려 드려요.</div>")
+    else:
+        html('<div class="dc-caption">상자에 적힌 이름을 그대로 적어요. 드리퍼 크기에 맞는 필터인지 확인해 주세요.</div>')
+    if st.button("추가하기", type="primary", width="stretch", key="ne-save"):
+        try:
+            cal.append_equipment(kind, name, detail, EQUIPMENT_PATH)
+        except cal.EquipmentError as error:
+            notice(str(error), error=True)
+        else:
+            st.session_state["new_equipment"] = (kind, name.strip())  # 다음 실행에서 1단계 칸에 넣는다
+            st.rerun()
+
+
 def rest_notice(bean):
     """로스팅 뒤 디게싱이 얼마나 됐는지. 좋을 때는 작은 글씨로, 이르거나 상미 기간이 지났으면 상자로 알린다."""
     try:
@@ -1285,26 +1342,26 @@ def flow_equipment(flow):
         if beans[bean_id]["role"] == "시험":
             notice("시험용 원두예요. 모델을 동결한 뒤 최종 시험에서만 내려요 (MODEL.md 6절).")
         rest_notice(beans[bean_id])
-    # 장비는 기록이 있으면 지난 잔 것을 채우고, 처음이면 비워 둔 채 예시만 보여 준다
+    # 장비는 목록에서만 고른다. 드리퍼·그라인더는 지난 잔 것을 채우고, 필터는 장소마다 달라서 매번 고른다
+    # (목록에 하나뿐이면 그것을 채운다)
+    equipment = cal.load_equipment(EQUIPMENT_PATH)
+    new = st.session_state.pop("new_equipment", None)
+    if new:
+        kind, name = new
+        st.session_state[EQUIPMENT_KEYS[kind]] = name
+        notice(f"{cal.with_object(name)} 장비 목록에 더했어요.")
     c1, c2, c3 = st.columns(3)
-    dripper = c1.text_input("드리퍼", flow.get("dripper") or (last.row.get("dripper", "") if last else ""),
-                            placeholder="예: 하리오 V60", key="flow-dripper",
-                            help="물을 붓는 깔때기 모양 도구예요. 바닥에 이름이 적혀 있어요.")
-    filters = list(dict.fromkeys([*cal.FILTERS, *(b.filter_paper for b in brews if b.filter_paper)]))
-    chosen = flow.get("filter")
-    filter_paper = c2.selectbox("필터", filters, index=filters.index(chosen) if chosen in filters else None,
-                                placeholder="필터를 골라 주세요", accept_new_options=True, key="flow-filter",
-                                help="드리퍼에 끼우는 종이예요. 종이마다 물 빠지는 속도가 달라질 수 있어요. "
-                                     "목록에 없으면 이름을 적어요.")
-    recorded = [b.grinder for b in reversed(brews) if b.grinder]
-    # 기록한 그라인더 + 클릭표가 있는 그라인더(이미 기록에 같은 이름이 있으면 빼서 '메버릭1'과 '메버릭'이 겹치지 않게)
-    grinders = list(dict.fromkeys([*recorded, *(name for name in cal.CLICK_TABLES if not any(name in r for r in recorded))]))
-    chosen = flow.get("grinder") or (last.grinder if last and last.grinder else None)
-    grinder = c3.selectbox("그라인더", grinders, index=grinders.index(chosen) if chosen in grinders else None,
-                           placeholder="예: 메버릭", accept_new_options=True, key="flow-grinder",
-                           help="원두를 가는 기계예요. 목록에 없으면 이름을 적어요. 클릭 수를 알려 줄 때 써요.")
-    ready = bool(bean_id and filter_paper and grinder)
-    if bottom_cta("다음: 기초 추천 받기", "flow-next-1", ready, "원두·필터·그라인더를 고르면 다음으로 갈 수 있어요"):
+    dripper = equipment_select(c1, equipment, "드리퍼", "flow-dripper",
+                               flow.get("dripper") or (last.row.get("dripper") if last else None))
+    filter_paper = equipment_select(c2, equipment, "필터", "flow-filter", flow.get("filter"))
+    grinder = equipment_select(c3, equipment, "그라인더", "flow-grinder",
+                               flow.get("grinder") or (last.grinder if last else None))
+    if st.button("＋ 장비 추가", type="tertiary", key="flow-add-equipment"):
+        add_equipment_dialog()
+    if dripper and dripper_shape(equipment, dripper) != "원뿔형":
+        notice(NOT_CONE)
+    ready = bool(bean_id and dripper and filter_paper and grinder)
+    if bottom_cta("다음: 기초 추천 받기", "flow-next-1", ready, "원두·드리퍼·필터·그라인더를 고르면 다음으로 갈 수 있어요"):
         flow.update(bean_id=bean_id, dose_g=float(dose), dripper=dripper, filter=filter_paper, grinder=grinder)
         go_to(2)
 
