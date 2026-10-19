@@ -125,3 +125,44 @@ def test_brew_step_compares_the_result_with_the_prediction(monkeypatch, my_files
     button(at, "flow-next-4").click().run()
     flow = at.session_state["flow"]
     assert flow["step"] == 5 and flow["drawdown_end_s"] == 140 and flow["beverage_g"] == 176.0 and flow["flag"] == ""
+
+
+def test_taste_step_needs_all_scores_and_strength_then_saves_the_cup(monkeypatch, my_files):
+    # 5단계: 맛 6항목과 진하기를 모두 골라야 저장하고, 저장한 잔에는 흐름에서 모은 값과 내리기 전 예측이 남는다.
+    from dripcoffee import calibration as cal
+    at = start(monkeypatch, *my_files)
+    button(at, "home-start").click().run()
+    at.selectbox(key="flow-bean").set_value("B02").run()
+    at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백")
+    button(at, "flow-next-1").click().run()
+    button(at, "flow-next-2").click().run()
+    button(at, "flow-skip-3").click().run()
+    at.text_input(key="flow-drawdown").set_value("2:20").run()
+    at.number_input(key="flow-beverage").set_value(176.0).run()
+    button(at, "flow-next-4").click().run()
+    assert not at.exception and has_text(at, "5 / 6 단계") and has_text(at, "바로")
+    flow = dict(at.session_state["flow"])
+    flow["measured_d50_um"] = 1150.0  # 사진으로 잰 것처럼 (AppTest는 사진 올리기를 흉내 내지 못한다)
+    at.session_state["flow"] = flow
+    button(at, "flow-save").click().run()
+    assert has_text(at, "맛 6항목을 모두 매겨 주세요")
+    for name, value in (("aroma", 3.5), ("flavor", 3.0), ("acidity", 1.5), ("body", 3.0), ("balance", 3.5),
+                        ("aftertaste", 3.5)):
+        at.select_slider(key=f"flow-taste-{name}").set_value(value).run()
+    button(at, "flow-save").click().run()
+    assert has_text(at, "진하기를 골라 주세요")
+    next(w for w in at.get("button_group") if w.key == "flow-strength").set_value("진했어요").run()
+    button(at, "flow-save").click().run()
+    assert not at.exception and at.session_state["flow"]["step"] == 6
+    saved = cal.load_brews(my_files[0])[-1]
+    assert saved.bean_id == "B02" and saved.strength == "진함" and saved.drawdown_end_s == 140
+    assert saved.taste["aroma"] == 3.5 and saved.filter_paper == "홀츠클로츠 무표백" and saved.grind_d50_um == 1150
+    assert "앱 예측(내리기 전)" in saved.memo and saved.row["followed_recommendation"].startswith("예 (한 잔 내리기")
+    # 6단계: 이번 잔과 다음 추천의 변화를 보여 준다. '진했어요'라서 목표 농도가 내려가고 가수 물이 는다
+    assert has_text(at, "6 / 6 단계") and has_text(at, saved.brew_id) and has_text(at, "다음 추천은 이렇게 바뀌어요")
+    from dripcoffee import recommend as rec
+    after = rec.preference_target(rec.brew_points(cal.load_brews(my_files[0])))
+    assert after.tds_pct < at.session_state["flow"]["target_before"][1]
+    assert has_text(at, f"→ {after.tds_pct:.2f}%")
+    button(at, "flow-finish-home").click().run()
+    assert not at.exception and has_text(at, "오늘의 한 잔")

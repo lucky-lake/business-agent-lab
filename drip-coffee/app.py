@@ -25,7 +25,7 @@ from dripcoffee import extraction_model as em
 from dripcoffee import grind_analysis as ga
 from dripcoffee import recommend as rec
 
-PROFILE_DIR = LOCAL_DATA_DIR / "grind_profiles"
+PROFILE_DIR = Path(os.environ.get("DRIP_COFFEE_PROFILES", LOCAL_DATA_DIR / "grind_profiles"))  # 분쇄 측정 저장 폴더
 CLICK_TABLE = DATA_DIR / "reference" / "maverick_click_table.csv"
 # 추출 기록과 원두 목록. 테스트·미리보기에서는 환경 변수로 다른 파일을 쓰게 해 실제 기록을 건드리지 않는다.
 BREWS_PATH = Path(os.environ.get("DRIP_COFFEE_BREWS", cal.BREWS_PATH))
@@ -514,8 +514,9 @@ def axis(title):
                     titleColor=GRAY, titleFontSize=13, titleFontWeight=500, tickCount=6)
 
 
-def preference_chart(points, target):
+def preference_chart(points, target, highlight=None):
     """잔마다 (추출수율, 가수 후 농도)를 점으로 찍고, 골든컵 범위·내 선호 중심·추천 목표를 함께 그린다.
+    highlight에 추출번호를 주면 그 잔에 진한 테두리를 두른다(한 잔 내리기 마무리에서 '이번 잔').
 
     좋았던 잔(가중치 > 0)은 파랗게, 점수가 높을수록 진하게 칠하고, 중심을 당기지 않은 잔은 회색으로 둔다.
     골든컵 중심에서 추천 목표로 점선을 그어, 기록이 목표를 어느 쪽으로 옮겼는지 보이게 한다.
@@ -555,6 +556,10 @@ def preference_chart(points, target):
                      alt.Tooltip("score:Q", title="만족도"), alt.Tooltip("ey:Q", title="추출수율 (%)", format=".1f"),
                      alt.Tooltip("tds:Q", title="가수 후 농도 (%)", format=".2f")],
         )
+        this_cup = cups[cups["brew_id"] == highlight]
+        if not this_cup.empty:
+            layers += alt.Chart(this_cup).mark_point(shape="circle", size=520, filled=False, color=TEXT,
+                                                     strokeWidth=2.5, opacity=1).encode(x=x, y=y)
 
     marks_df = pd.DataFrame(marks, columns=["ey", "tds", "label"])
     # 이름은 그림 안에 쓰지 않고 아래 기호 설명(PREFERENCE_LEGEND)에 둔다. 폰 화면에서 서로 겹쳐서.
@@ -1268,13 +1273,14 @@ def flow_grind(flow):
         if uploads and shown:
             notice("입자를 잰 사진이 없어요. 가루를 칸 안쪽에 듬성듬성 펴고 다시 찍어 주세요.", error=True)
         elif not uploads:
-            notice("사진을 올리면 가루의 실제 크기를 재고, 목표와 다르면 그 가루에 맞게 레시피를 고쳐 드려요.")
+            notice("사진을 올리면 가루의 실제 크기를 재고, 목표와 다르면 그 가루에 맞게 레시피를 고쳐 드려요. "
+                   "사진 없이 내리면 크기를 몰라서, 이 잔으로는 입맛을 배우기 어려워요.")
         c1, c2 = st.columns([1, 2])
         if c1.button("이전", width="stretch", key="flow-back-3"):
             go_to(2)
         if c2.button("사진 없이 추천대로 내리기", width="stretch", key="flow-skip-3"):
-            flow.update(clicks=clicks, measured_d50_um=None, photo_names=[], recipe=r.recipe, pattern=r.pattern,
-                        interval_s=r.interval_s, prediction=r.prediction)
+            flow.update(clicks=clicks, measured_d50_um=None, photo_names=[], profile=None, recipe=r.recipe,
+                        pattern=r.pattern, interval_s=r.interval_s, prediction=r.prediction)
             go_to(4)
         return
 
@@ -1311,8 +1317,8 @@ def flow_grind(flow):
     if c1.button("이전", width="stretch", key="flow-back-3"):
         go_to(2)
     if c2.button("다음: 이 레시피로 내리기", type="primary", width="stretch", key="flow-next-3"):
-        flow.update(clicks=clicks, measured_d50_um=profile.d50_um, photo_names=names, recipe=fit.recipe,
-                    pattern=r.pattern, interval_s=fit.interval_s, prediction=fit.prediction)
+        flow.update(clicks=clicks, measured_d50_um=profile.d50_um, photo_names=names, profile=profile,
+                    recipe=fit.recipe, pattern=r.pattern, interval_s=fit.interval_s, prediction=fit.prediction)
         go_to(4)
 
 
@@ -1393,9 +1399,130 @@ def flow_brew(flow):
         go_to(5)
 
 
+# 5단계 진하기 질문: 기록에 남기는 값 → 화면에 보이는 말
+STRENGTH_CHOICES = {"연함": "연했어요", "좋음": "딱 좋았어요", "진함": "진했어요"}
+
+
+def flow_record(flow, taste, strength, memo):
+    """흐름에서 모은 값으로 brews.csv 한 줄을 만든다."""
+    brews = cal.load_brews(BREWS_PATH)
+    bean = cal.load_beans(BEANS_PATH)[flow["bean_id"]]
+    target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime)
+    recipe, prediction = flow["recipe"], flow["prediction"]
+    measured = flow.get("measured_d50_um")
+    today = date.today().isoformat()
+    # 내리기 전에 낸 예측을 함께 남긴다. 검증(MODEL.md 6절)은 이 예측과 실제를 비교한다
+    note = f"앱 예측(내리기 전): 끊김 {clock(prediction.drawdown_end_s)}, 음료 {prediction.beverage_g:.0f} g."
+    return {
+        "brew_id": cal.next_brew_id(today, brews), "date": today, "bean_id": flow["bean_id"],
+        **{brew_col: bean[bean_col] for bean_col, brew_col in BEAN_TO_BREW.items()},
+        "roast_date": bean["roast_date"], "dripper": flow.get("dripper", ""), "filter": flow["filter"],
+        "grinder": flow["grinder"], "grinder_clicks": flow.get("clicks"),
+        "grind_d50_um": round(measured) if measured else None, "recipe": "추천 레시피",
+        "dose_g": recipe.dose_g, "water_temp_c": recipe.water_temp_c, "pours": rec.pours_text(recipe.pours),
+        "drawdown_end_s": flow["drawdown_end_s"], "beverage_g": flow["beverage_g"], "bypass_g": recipe.bypass_g,
+        **taste, "strength": strength, "memo": " ".join(part for part in (memo.strip(), note) if part),
+        "flag": flow.get("flag", ""),
+        "followed_recommendation": f"예 (한 잔 내리기, 추천 {r.d50_um:.0f} µm"
+                                   + (f" → 잰 {measured:.0f} µm에 맞춤" if measured else "")
+                                   + f", 목표 {target.ey_pct:.1f}% · {target.tds_pct:.2f}%)",
+    }
+
+
+def flow_taste(flow):
+    """5단계: 맛 평가. 가수하고 바로 맛본 점수와 진하기를 받아 이 잔을 기록에 저장한다."""
+    recipe = flow["recipe"]
+    html(f'<div class="dc-lead">드리퍼를 뺐으면 물 <b>{recipe.bypass_g:g} g</b>을 더하고(가수) 가볍게 저은 뒤 '
+         "<b>바로</b> 맛봐 주세요.<br>가수는 진하기를 맞추려고 물을 더하는 거예요. 식으면서 맛이 달라지니까, "
+         "매번 가수하고 바로 맛봐야 잔끼리 비교할 수 있어요.</div>")
+
+    def key(name):
+        return f"flow-taste-{name}"
+
+    taste = taste_section(key)
+    section("진하기", "다음 잔의 가수 물을 맞추는 데 써요. 연했다면 다음엔 물을 덜, 진했다면 더 타요.")
+    labels = list(STRENGTH_CHOICES.values())
+    picked = st.segmented_control("진하기는 어땠나요?", labels, key="flow-strength", label_visibility="collapsed")
+    memo = st.text_area("메모 (선택)", key="flow-memo", placeholder="나만 보는 기록이에요. 예: 식으면서 단맛이 올라옴")
+
+    c1, c2 = st.columns([1, 2])
+    if c1.button("이전", width="stretch", key="flow-back-5"):
+        go_to(4)
+    if c2.button("이 잔 기록하기", type="primary", width="stretch", key="flow-save"):
+        if any(v is None for v in taste.values()):
+            notice("맛 6항목을 모두 매겨 주세요. 다음 추천이 내 입맛을 배우는 데 써요.", error=True)
+            return
+        if not picked:
+            notice("진하기를 골라 주세요. 다음 잔의 가수 물을 맞추는 데 써요.", error=True)
+            return
+        strength = next(code for code, label in STRENGTH_CHOICES.items() if label == picked)
+        before, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime)
+        record = flow_record(flow, taste, strength, memo)
+        try:
+            cal.append_brew(record, BREWS_PATH)
+        except cal.BrewLogError as error:
+            notice(str(error), error=True)
+            return
+        if flow.get("profile") is not None:  # 사진 측정도 이 추출번호로 저장해 둔다 ('사진만 재기'의 저장한 측정)
+            ga.save_profile(ga.profile_record(flow["profile"], flow["bean_id"], flow["grinder"], flow.get("clicks"),
+                                              record["brew_id"], flow.get("photo_names", ())), PROFILE_DIR)
+        flow.update(saved_brew_id=record["brew_id"], target_before=(before.ey_pct, before.tds_pct),
+                    bypass_before=r.recipe.bypass_g, d50_before=r.d50_um)
+        go_to(6)
+
+
+def flow_finish(flow):
+    """6단계: 마무리. 이번 잔이 내 선호 영역의 어디에 있고, 다음 추천이 어떻게 바뀌었는지 보여 준다."""
+    brews = cal.load_brews(BREWS_PATH)
+    saved = next((b for b in brews if b.brew_id == flow.get("saved_brew_id")), None)
+    if saved is None:  # 저장하지 않고 이 단계에 온 경우
+        notice("아직 기록한 잔이 없어요. 5단계에서 맛을 매기고 기록해 주세요.", error=True)
+        if st.button("이전", key="flow-back-6"):
+            go_to(5)
+        return
+    points = rec.brew_points(brews)
+    after = rec.preference_target(points)
+    html(f'<div class="dc-lead"><b>{escape(saved.brew_id)}</b> 잔을 기록했어요. 이번 잔이 다음 추천에 반영됐어요.</div>')
+    score = saved.quality_score
+    html(
+        '<div class="dc-cards three">'
+        + card("이번 잔 만족도", f"{score:.2f}", "점", "Aroma, Flavor, Balance, Aftertaste의 평균이에요.", hero=True)
+        + card("진하기", STRENGTH_CHOICES.get(saved.strength, "–"), "", "다음 잔의 진하기를 맞추는 데 써요.")
+        + card("물줄기 끊김", clock(saved.drawdown_end_s), "", f"예측은 {clock(flow['prediction'].drawdown_end_s)}였어요.")
+        + card("음료 (가수 전)", f"{saved.beverage_g:g}", "g", f"예측은 {flow['prediction'].beverage_g:.0f} g이었어요.")
+        + "</div>"
+    )
+
+    section("다음 추천은 이렇게 바뀌어요", "얼마나 우러나게(추출수율)는 맛 점수로, 얼마나 진하게(농도)는 진하기로 배워요.")
+    ey0, tds0 = flow["target_before"]
+    lines = [("목표 추출수율", f"{ey0:.1f}% → {after.ey_pct:.1f}%"), ("목표 농도 (가수 후)", f"{tds0:.2f}% → {after.tds_pct:.2f}%")]
+    try:
+        _, nxt = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime)
+    except rec.NoRecipeError:
+        nxt = None
+    if nxt:
+        lines += [("같은 원두 다음 잔: 분쇄", f"{flow['d50_before']:.0f} → {nxt.d50_um:.0f} µm"),
+                  ("같은 원두 다음 잔: 가수", f"{flow['bypass_before']:g} → {nxt.recipe.bypass_g:g} g")]
+    html(rows(lines))
+    if saved.flag:
+        html('<div class="dc-caption">문제가 있었던 잔이라 다음 추천을 배울 때는 뺐어요.</div>')
+    elif not any(p.brew_id == saved.brew_id for p in points):
+        html('<div class="dc-caption">분쇄 크기를 몰라서 이번 잔은 다음 추천을 배울 때 쓰지 못했어요. '
+             "다음에는 3단계에서 가루 사진을 찍어 주세요.</div>")
+
+    if points:
+        section("내 선호 영역", "기록한 잔마다 모델로 계산한 위치예요. 진한 테두리가 이번 잔이에요.")
+        st.altair_chart(preference_chart(points, after, highlight=saved.brew_id), width="stretch")
+        html(PREFERENCE_LEGEND)
+
+    c1, c2 = st.columns(2)
+    c1.button("처음으로", width="stretch", key="flow-finish-home", on_click=open_page, args=("home",))
+    c2.button("내 기록 보기", width="stretch", key="flow-finish-history", on_click=open_page, args=("history",))
+
+
 def flow_later(flow):
-    """5단계부터는 준비 중. 지금은 '내 기록 보기'의 '직접 기록하기'로 이어서 한다."""
-    notice("5단계(맛 평가)부터는 준비 중이에요. 지금은 첫 화면의 '내 기록 보기 → 직접 기록하기'로 기록해 주세요.")
+    """정해진 단계 밖이면 처음부터 다시 시작하게 한다."""
+    notice("이 단계는 없어요. 처음부터 다시 시작해 주세요.", error=True)
     c1, c2 = st.columns([1, 2])
     if c1.button("이전", width="stretch", key="flow-back-later"):
         go_to(flow["step"] - 1)
@@ -1407,7 +1534,8 @@ def flow_page():
     flow = st.session_state.setdefault("flow", {"step": 1})
     step = flow["step"]
     flow_header(min(step, len(FLOW_STEPS)))
-    {1: flow_equipment, 2: flow_base_recipe, 3: flow_grind, 4: flow_brew}.get(step, flow_later)(flow)
+    {1: flow_equipment, 2: flow_base_recipe, 3: flow_grind, 4: flow_brew, 5: flow_taste,
+     6: flow_finish}.get(step, flow_later)(flow)
 
 
 def open_page(page):
