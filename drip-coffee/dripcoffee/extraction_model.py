@@ -63,6 +63,7 @@ class ModelParams:
     # 물 흐름 (노트1)
     flow_resistance_ref: float = 1.17e12  # R_ref (m⁻³): 대표 크기 1000 µm, 원두 20 g 기준. 보정 계수 1. 시작값은 첫 B02 기록(96 °C, 2:20, 1200 µm로 가정)에 맞춤 (10/19 구멍을 넣은 모양으로 다시 맞춤)
     resistance_d_ref_um: float = 1000.0
+    resistance_size_exponent: float = 2.0  # 흐름 저항 ∝ (d_ref/d)^n. 코제니–카르만 식은 n = 2 (보정에서 n을 바꿔 비교)
     resistance_dose_ref_g: float = 20.0
     held_liquid_ratio: float = 2.1  # R_abs (g/g): 가루가 머금는 액체. 보정 계수 2 (노트3 M2)
     cone_half_angle_deg: float = 29.6  # V60 02 원뿔 반각: 제조사 규격(구경 116 mm, 높이 102 mm)에서 atan(58/102)
@@ -229,7 +230,7 @@ def predict(recipe, grind, params=DEFAULT_PARAMS):
     bed_ml = dose / p.bulk_density_g_per_ml
     resistance = (
         p.flow_resistance_ref
-        * (p.resistance_d_ref_um / grind.d50_um) ** 2
+        * (p.resistance_d_ref_um / grind.d50_um) ** p.resistance_size_exponent
         * (dose / p.resistance_dose_ref_g)  # 가루층이 길수록 저항이 크다 (다르시: 저항 ∝ 층 길이)
     )
 
