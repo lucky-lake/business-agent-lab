@@ -56,7 +56,7 @@ def my_files(tmp_path):
 
 def test_first_time_user_with_no_beans_or_records(monkeypatch, empty_files):
     at = start(monkeypatch, *empty_files)
-    assert not at.exception and not has_text(at, "지난 한 잔")
+    assert not at.exception and not has_text(at, "같은 원두로 내리기") and has_text(at, "아직 없어요")
     button(at, "home-start").click().run()
     assert has_text(at, "아직 원두가 없어요") and button(at, "flow-add-first-bean")
     for page in ("history", "check"):
@@ -73,6 +73,19 @@ def test_history_without_tasted_cups_explains_the_golden_cup(monkeypatch, empty_
     at = start(monkeypatch, *empty_files)
     button(at, "home-history").click().run()
     assert not at.exception and has_text(at, "아직 맛을 매긴 잔이 없어서 골든컵")
+
+
+def test_same_bean_row_fills_the_last_bean_but_not_the_filter(monkeypatch, my_files):
+    # 시작 화면의 '같은 원두로 내리기': 지난 잔의 원두와 양만 채우고, 필터는 장소마다 달라서 비워 둔다
+    from dripcoffee import calibration as cal
+    brews = cal.load_brews(my_files[0])
+    at = start(monkeypatch, *my_files)
+    assert has_text(at, "같은 원두로 내리기") and has_text(at, f"{len(brews)}잔")
+    button(at, "home-same-bean").click().run()
+    assert not at.exception and has_text(at, "1 / 6 단계")
+    assert at.selectbox(key="flow-bean").value == brews[-1].bean_id
+    assert at.number_input(key="flow-dose").value == brews[-1].dose_g
+    assert at.selectbox(key="flow-filter").value is None
 
 
 def test_bean_starts_blank_and_must_be_chosen(monkeypatch, my_files):

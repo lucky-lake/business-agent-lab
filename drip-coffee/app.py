@@ -77,7 +77,7 @@ STYLE = """
 [data-testid="stBaseButton-primary"] p { font-size: 17px; font-weight: 700; }
 .dc-hero { font-size: 40px; font-weight: 800; color: #2A2A2A; letter-spacing: -0.03em; line-height: 1.25; margin: 4px 0 8px; }
 .dc-title { font-size: 32px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; line-height: 1.3; }
-.dc-lead { font-size: 16px; color: #4E5968; line-height: 1.6; margin: 4px 0 28px; }
+.dc-lead { font-size: 16px; color: #4E5968; line-height: 1.6; margin: 4px 0 28px; word-break: keep-all; }  /* 낱말 중간에서 줄을 바꾸지 않는다 */
 .dc-section { font-size: 22px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; margin: 48px 0 4px; }
 .dc-caption { font-size: 14px; color: #8B95A1; margin-bottom: 16px; }
 
@@ -143,9 +143,9 @@ STYLE = """
 /* 한 잔 내리기의 아래 고정 버튼 (토스 디자인 시스템 BottomCTA: 화면 아래에 붙고, 위로 36px 흰 그라데이션,
    아래 여백 20px). 다 채우기 전에는 버튼 자리에 무엇을 채우면 되는지 흐리게 보여 주고, 다 채우면 버튼이 아래에서
    튀어 올라온다 */
-.st-key-flow-cta { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); z-index: 100;
+.st-key-flow-cta, .st-key-home-cta { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); z-index: 100;
                    width: 100%; max-width: 980px; padding: 8px 1rem 20px; background: #FFFFFF; }
-.st-key-flow-cta::before { content: ""; position: absolute; left: 0; right: 0; top: -36px; height: 36px;
+.st-key-flow-cta::before, .st-key-home-cta::before { content: ""; position: absolute; left: 0; right: 0; top: -36px; height: 36px;
                            pointer-events: none; background: linear-gradient(to top, #FFFFFF 25%, rgba(255, 255, 255, 0)); }
 .st-key-flow-cta [data-testid="stHorizontalBlock"] { flex-wrap: nowrap; gap: 8px; }  /* 좁은 화면에서도 한 줄 */
 .st-key-flow-cta [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; flex: 1 1 0 !important; }
@@ -155,7 +155,7 @@ STYLE = """
 .st-key-flow-cta [data-testid="stBaseButton-secondary"] p,
 .st-key-flow-cta [data-testid="stBaseButton-primary"] p { font-size: 17px; font-weight: 600; }
 .st-key-flow-cta [class*="st-key-flow-next"], .st-key-flow-cta .st-key-flow-save,
-.st-key-flow-cta .st-key-flow-finish-home { animation: dc-cta-in .35s var(--dc-spring) both; }
+.st-key-flow-cta .st-key-flow-finish-home, .st-key-home-start { animation: dc-cta-in .35s var(--dc-spring) both; }
 @keyframes dc-cta-in { from { opacity: 0; transform: translateY(32px); } to { opacity: 1; transform: none; } }
 .dc-cta-hint { min-height: 56px; display: flex; align-items: center; justify-content: center; padding: 0 16px;
                border-radius: 16px; background: #F2F4F6; color: #8B95A1; font-size: 15px; font-weight: 600;
@@ -231,6 +231,36 @@ STYLE = """
 .dc-change-to { font-size: 17px; font-weight: 700; color: #2A2A2A; }
 .dc-pill { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 100px; background: #E8F3FF; color: #1B64DA; }
 .dc-pill.same { background: #F2F4F6; color: #8B95A1; }
+
+/* 시작 화면: 커피 아이콘이 튀어나오고, 지난 잔과 내 기록은 누를 수 있는 목록으로 */
+.dc-home-icon { width: 64px; height: 64px; font-size: 34px; margin-bottom: 18px; animation: dc-pop .45s var(--dc-spring) both; }
+.st-key-home-list { gap: 0; padding: 6px 0; border-radius: 24px; background: #FFFFFF;
+                    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04); animation: dc-rise .4s .08s var(--dc-ease) both; }
+.st-key-home-check button p { font-size: 13px; color: #8B95A1; }
+/* 누를 수 있는 목록 한 줄 (토스 ListRow, list_row): 보이는 내용은 HTML, 그 위를 투명한 버튼이 통째로 덮는다 */
+[class*="st-key-row-"] { position: relative; gap: 0; }
+[class*="st-key-row-"] [data-testid="stElementContainer"]:has(button) { position: absolute; inset: 0; z-index: 1; }
+[class*="st-key-row-"] [data-testid="stElementContainer"]:has(button) div { height: 100%; }
+[class*="st-key-row-"] button { width: 100%; height: 100%; min-height: 0; padding: 0; border: none; border-radius: 16px;
+                                background: transparent; color: transparent; }
+[class*="st-key-row-"] button:hover, [class*="st-key-row-"] button:focus { background: transparent; color: transparent; }
+[class*="st-key-row-"] button p { color: transparent; }
+.dc-lrow { display: flex; align-items: center; gap: 12px; min-height: 68px; padding: 12px 20px; border-radius: 16px;
+           transition: background-color .1s ease-in-out, transform .2s var(--dc-spring); }
+[class*="st-key-row-"]:hover .dc-lrow { background: #F9FAFB; }
+[class*="st-key-row-"]:has(button:active) .dc-lrow { transform: scale(.98); }
+.dc-lrow .dc-icon, .dc-avatar { flex: none; width: 40px; height: 40px; margin: 0; }
+.dc-avatar { border-radius: 50%; background: #E8F3FF; color: #1B64DA; font-size: 13px; font-weight: 700;
+             display: flex; align-items: center; justify-content: center; }
+.dc-lrow-text { flex: 1; min-width: 0; }
+.dc-lrow-text b { display: block; font-size: 16px; font-weight: 600; color: #2A2A2A; overflow: hidden;
+                  white-space: nowrap; text-overflow: ellipsis; }
+.dc-lrow-text small { display: block; font-size: 13px; color: #8B95A1; margin-top: 1px; overflow: hidden;
+                      white-space: nowrap; text-overflow: ellipsis; }
+.dc-lrow-go { font-size: 14px; font-weight: 600; color: #3182F6; white-space: nowrap; }
+.dc-lrow-go.muted { color: #8B95A1; font-weight: 500; }
+.dc-lrow-chev { font-family: "Material Symbols Rounded"; font-size: 22px; color: #B0B8C1; margin-left: -8px; }
+@media (max-width: 480px) { .dc-wide { display: none; } .dc-lrow { gap: 10px; padding: 12px 16px; } }
 
 /* 위에서 내려오는 알림 (토스 디자인 시스템 Toast: 흰 알약 모양, 옅은 그림자, 15px 굵은 글자, 왼쪽 아이콘,
    위쪽 알림은 48px 위에서 내려오고 3초 뒤 사라짐). 알림 자리는 화면 흐름 밖에 고정해 내용을 밀지 않는다 */
@@ -1462,6 +1492,7 @@ def flow_equipment(flow):
             add_bean_dialog()
         return
     # 원두는 늘 직접 고른다. 지난 원두가 저절로 넘어가 잘못 기록되는 일을 막으려고 비워 둔 채 시작한다
+    # (시작 화면에서 '같은 원두로 내리기'를 누른 때만 그 원두를 채운다)
     chosen_bean = flow.get("bean_id")
     c1, c2 = st.columns([2, 1])
     bean_id = c1.selectbox("원두", bean_ids, index=bean_ids.index(chosen_bean) if chosen_bean in beans else None,
@@ -1917,21 +1948,63 @@ def page_header(name, title, lead):
          f'<div class="dc-lead">{lead}</div>')
 
 
+def list_row(key, markup, label, on_click, args=()):
+    """누를 수 있는 목록 한 줄 (토스 ListRow). 보이는 내용은 HTML로 그리고, 같은 크기의 투명한 버튼을 그 위에 덮어
+    줄 어디를 눌러도 눌리게 한다. 화면 읽기 프로그램은 버튼 이름(label)을 읽는다."""
+    with st.container(key=f"row-{key}"):
+        html(markup)
+        st.button(label, key=key, on_click=on_click, args=args, width="stretch")
+
+
+def row_markup(lead, title, sub="", action="", muted=False, wide_sub=""):
+    """목록 한 줄의 모양: 왼쪽 동그라미(lead), 제목과 작은 설명, 오른쪽 글(할 일은 파랗게, 개수는 회색)과 '>'.
+    wide_sub는 넓은 화면에서만 설명 앞에 붙인다 (폰에서는 설명이 두 줄로 꺾이지 않게 뺀다)."""
+    wide = f'<span class="dc-wide">{escape(wide_sub)}</span>' if wide_sub else ""
+    sub = f"<small>{wide}{escape(sub)}</small>" if sub else ""
+    return (f'<div class="dc-lrow">{lead}<span class="dc-lrow-text"><b>{escape(title)}</b>{sub}</span>'
+            f'<span class="dc-lrow-go{" muted" if muted else ""}">{escape(action)}</span><span class="dc-lrow-chev" aria-hidden="true">chevron_right</span></div>')
+
+
+def short_date(iso):
+    """'2026-10-19' → '10월 19일'."""
+    try:
+        day = date.fromisoformat(iso)
+    except ValueError:
+        return iso
+    return f"{day.month}월 {day.day}일"
+
+
+def brew_same_bean(last):
+    """지난 잔과 같은 원두로 한 잔 내리기를 시작한다. 원두와 양만 채우고(드리퍼·그라인더는 원래 지난 잔 것을 채운다)
+    필터는 장소마다 달라서 비워 둔다. 레시피는 2단계에서 지금까지의 기록으로 새로 계산한다."""
+    open_page("flow")
+    st.session_state["flow"].update(bean_id=last.bean_id, dose_g=last.dose_g)
+
+
 def home_page():
-    """첫 화면: '시작하기' 하나를 크게 두고, 나머지는 작은 링크로."""
-    html('<div class="dc-home"><div class="dc-eyebrow">Drip Coffee</div><div class="dc-hero">오늘의 한 잔</div>'
+    """첫 화면: 아래에 붙은 '시작하기' 하나를 크게 두고, 지난 잔과 내 기록은 누를 수 있는 목록 한 줄씩.
+    모델 점검은 사용자 화면이 아니라 모델이 실제 잔을 얼마나 맞히는지 보는 검증 화면이라 맨 아래 작게 둔다."""
+    html('<div class="dc-home"><div class="dc-icon dc-home-icon" aria-hidden="true">coffee</div>'
+         '<div class="dc-eyebrow">Drip Coffee</div><div class="dc-hero">오늘의 한 잔</div>'
          '<div class="dc-lead">원두와 장비만 알려 주면 레시피부터 기록까지 안내해요.<br>'
-         "사진으로 잰 분쇄와 내 맛 기록으로, 나에게 맞는 한 잔을 찾아가요.</div></div>")
-    st.button("시작하기", type="primary", width="stretch", key="home-start", on_click=open_page, args=("flow",))
+         "맛을 매길수록 다음 잔이 내 입맛에 가까워져요.</div></div>")
     brews = cal.load_brews(BREWS_PATH)
-    if brews:
-        last = brews[-1]
-        score = f"만족도 {last.quality_score:.2f}" if last.quality_score is not None else "맛 점수 없음"
-        html(f'<div class="dc-caption" style="text-align:center; margin-top:16px">지난 한 잔 · {escape(last.brew_id)} · '
-             f"{escape(last.bean_id)} {escape(last.row.get('bean_name', ''))} · {score}</div>")
-    c1, c2 = st.columns(2)
-    c1.button("내 기록 보기", type="tertiary", width="stretch", key="home-history", on_click=open_page, args=("history",))
-    c2.button("모델 점검", type="tertiary", width="stretch", key="home-check", on_click=open_page, args=("check",))
+    with st.container(key="home-list"):
+        if brews:
+            last = brews[-1]
+            score = f" · {last.quality_score:.2f}점" if last.quality_score is not None else ""
+            name = last.row.get("bean_name", "") or last.bean_id
+            list_row("home-same-bean",
+                     row_markup(f'<span class="dc-avatar">{escape(last.bean_id)}</span>', name,
+                                f"{short_date(last.date)}{score}", "같은 원두로 내리기", wide_sub="지난 잔 "),
+                     f"같은 원두로 내리기: {last.bean_id} {name}", brew_same_bean, (last,))
+        list_row("home-history",
+                 row_markup('<span class="dc-icon" aria-hidden="true">history</span>', "내 기록",
+                            action=f"{len(brews)}잔" if brews else "아직 없어요", muted=True),
+                 "내 기록 보기", open_page, ("history",))
+    st.button("모델 점검 (검증용)", type="tertiary", width="stretch", key="home-check", on_click=open_page, args=("check",))
+    with st.container(key="home-cta"):  # 화면 아래에 붙는 버튼 (한 잔 내리기의 아래 버튼과 같은 모양)
+        st.button("시작하기", type="primary", width="stretch", key="home-start", on_click=open_page, args=("flow",))
 
 
 def history_page():
