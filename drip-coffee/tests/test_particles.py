@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 from dripcoffee import grind_analysis as ga
-from tests.synthetic import COFFEE_BGR, PAPER_BGR, render_particles, scattered_particles
+from tests.synthetic import COFFEE_BGR, DARK_CHAFF_BGR, PAPER_BGR, render_particles, scattered_particles
 
 PX_PER_MM = 40.0  # 펴진 B칸 사진과 비슷한 해상도 (25 µm/px)
 UM_PER_PX = 1000.0 / PX_PER_MM
@@ -82,16 +82,55 @@ def test_uneven_lighting_does_not_change_sizes():
     assert np.median(rel) < 0.03
 
 
-def test_touching_pairs_are_left_out_as_clumps():
-    # 실제 사진에서 붙은 입자들이 큰 입자 하나로 재져 부피 중앙값이 3~10배 커진 경우를 막는다.
+def arc_cluster(cx, cy, n=13, radius=1.2, d=0.8):
+    """입자 여러 개가 넓게 맞닿아 휘어진 덩어리 (촘촘히 편 사진의 엉킨 덩어리 흉내). 이웃 간격은 지름의 0.6배."""
+    angles = np.linspace(0, 1.5 * np.pi, n)
+    return [(cx + radius * np.cos(a), cy + radius * np.sin(a), d) for a in angles]
+
+
+def test_touching_pairs_are_split_and_measured():
+    # 붙은 짝을 큰 입자 하나로 재면 부피 중앙값이 커지고, 통째로 빼면 큰 입자가 빠져 작아진다.
+    # 잘록한 곳에서 나눠 두 입자로 재야 정답에 가깝다.
     singles = scattered_particles(36, SQUARE_MM, 0.7, 0.2, seed=9)
     pairs = scattered_particles(36, SQUARE_MM, 0.7, 0.2, seed=10)[::3]
-    touching = [(x + 0.95 * d, y, d) for x, y, d in pairs]  # 바로 옆에 붙은 짝
+    touching = [(x + d, y, d) for x, y, d in pairs]  # 바로 옆에 맞닿은 짝
     singles = [p for i, p in enumerate(singles) if i % 3 != 0]  # 짝을 둔 자리는 비운다
     img, true_d = render_particles(SIZE_PX, PX_PER_MM, singles + pairs + touching)
     m = ga.measure_particles(img, UM_PER_PX)
-    assert m.excluded_clumps >= 0.8 * len(pairs)
-    assert len(m.diameters_um) <= len(singles) + 0.2 * len(pairs)
+    assert len(m.diameters_um) >= len(singles) + 1.75 * len(pairs)  # 짝의 75% 이상을 두 입자로 나눴다
+    assert m.excluded_clumps <= 0.2 * len(pairs)
+    truth = volume_median_um(np.array(true_d) * 1000)
+    assert abs(m.d50_volume_um - truth) / truth < 0.05
+
+
+def test_single_particle_with_a_waist_is_not_split_or_left_out():
+    # 실제 사진에서 혼자 있는 울퉁불퉁한 큰 입자를 덩어리로 보고 빼서 대표 크기가 작게 나왔다(10/19).
+    # 허리가 굵게 잘록한 입자(지름의 0.6배 거리로 겹친 두 조각, 잘록한 곳이 반지름의 0.8배)는 한 입자로 재야 한다.
+    base = scattered_particles(36, SQUARE_MM, 0.8, 0.15, seed=12)[::2]
+    img, _ = render_particles(SIZE_PX, PX_PER_MM, base + [(x + 0.6 * d, y, d) for x, y, d in base])
+    m = ga.measure_particles(img, UM_PER_PX)
+    assert len(m.diameters_um) == len(base)
+    assert m.excluded_clumps == 0
+
+
+def test_dark_chaff_piece_is_left_out_by_color():
+    # 큰 은피 조각은 커피 입자만큼 어둡게 찍혀 커피로 잡혔다(10/19 실제 사진). 노란 정도로 가려 뺀다.
+    parts = scattered_particles(49, SQUARE_MM, 0.8, 0.3, seed=4)
+    coffee, chaff = parts[:-6], [(x, y, 1.6 * d) for x, y, d in parts[-6:]]
+    img, _ = render_particles(SIZE_PX, PX_PER_MM, coffee, chaff=chaff, chaff_bgr=DARK_CHAFF_BGR)
+    m = ga.measure_particles(img, UM_PER_PX)
+    assert len(m.diameters_um) == len(coffee)
+    assert m.excluded_chaff == len(m.outlines["chaff"]) == len(chaff)
+
+
+def test_tangled_cluster_that_cannot_be_split_is_left_out():
+    # 여러 입자가 넓게 맞닿아 나눌 잘록한 곳이 없는 덩어리는 큰 입자 하나로 재지 않고 뺀다.
+    parts = scattered_particles(16, SQUARE_MM, 0.7, 0.2, seed=13)
+    parts = [(x, y, d) for x, y, d in parts if np.hypot(x - 12.5, y - 12.5) > 4.0]  # 가운데를 비운다
+    img, _ = render_particles(SIZE_PX, PX_PER_MM, parts + arc_cluster(12.5, 12.5))
+    m = ga.measure_particles(img, UM_PER_PX)
+    assert len(m.diameters_um) == len(parts)
+    assert m.excluded_clumps == 1
 
 
 def test_outlines_match_counts_by_kind():
@@ -99,9 +138,9 @@ def test_outlines_match_counts_by_kind():
     singles = scattered_particles(36, SQUARE_MM, 0.7, 0.2, seed=9)
     pairs = scattered_particles(36, SQUARE_MM, 0.7, 0.2, seed=10)[::3]
     touching = [(x + 0.95 * d, y, d) for x, y, d in pairs]
-    singles = [p for i, p in enumerate(singles) if i % 3 != 0]
+    singles = [p for i, p in enumerate(singles) if i % 3 != 0 and np.hypot(p[0] - 12.5, p[1] - 12.5) > 4.0]
     on_edge = [(0.0, SQUARE_MM / 2, 2.0)]  # 반쯤 칸 안으로 들어온 큰 입자
-    img, _ = render_particles(SIZE_PX, PX_PER_MM, singles + pairs + touching + on_edge)
+    img, _ = render_particles(SIZE_PX, PX_PER_MM, singles + pairs + touching + on_edge + arc_cluster(12.5, 12.5))
     m = ga.measure_particles(img, UM_PER_PX)
     assert len(m.outlines["measured"]) == len(m.diameters_um)
     assert len(m.outlines["clump"]) == m.excluded_clumps > 0
@@ -150,4 +189,6 @@ def test_thin_diagonal_particle_does_not_stop_the_clump_check():
     rows = [".......##", "......#..", ".....###.", ".....#...", "...##....",
             "..###....", "#####....", "####.....", "###......", ".#......."]
     mask = np.array([[c == "#" for c in row] for row in rows])
-    assert ga._is_clump(mask) in (True, False)
+    assert ga._solidity(mask) > 0  # 픽셀 수 ÷ 윤곽선 넓이라 아주 작은 입자는 1을 조금 넘을 수 있다
+    pieces, k = ga._split_touching(mask)
+    assert k >= 1 and np.array_equal(pieces > 0, mask)

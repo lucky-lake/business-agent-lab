@@ -114,6 +114,7 @@ def speckle_marker(img, px_per_mm, window_mm, marker_id, fraction=0.5, blob_px=3
 PAPER_BGR = (222, 226, 228)  # 살짝 회색빛인 종이
 COFFEE_BGR = (28, 36, 52)  # 진한 갈색 원두 입자
 CHAFF_BGR = (110, 160, 200)  # 연한 황갈색 은피
+DARK_CHAFF_BGR = (40, 80, 120)  # 커피만큼 어둡게 찍힌 큰 은피 조각 (실제 사진의 노란 갈색 조각을 흉내 냄)
 
 
 def make_particle_polygon(center, diameter, rng, n_vertices=None):
@@ -131,11 +132,13 @@ def make_particle_polygon(center, diameter, rng, n_vertices=None):
     return pts * np.sqrt(target / area) + np.asarray(center, dtype=float)
 
 
-def render_particles(size_px, px_per_mm, particles, chaff=(), shading=0.0, noise_sigma=2.0, supersample=8, seed=0):
+def render_particles(size_px, px_per_mm, particles, chaff=(), shading=0.0, noise_sigma=2.0, supersample=8, seed=0,
+                     chaff_bgr=CHAFF_BGR):
     """펴진 가루 칸처럼 보이는 컬러 이미지를 그린다.
 
     particles, chaff: (중심 x mm, 중심 y mm, 등가원 지름 mm) 목록. 좌표는 가루 칸 왼쪽 위 기준.
     shading: 0이면 고른 조명, 0.3이면 왼쪽에서 오른쪽으로 30% 어두워지는 조명.
+    chaff_bgr: 은피 색. 기본은 연한 은피, DARK_CHAFF_BGR이면 커피만큼 어두운 은피.
     돌려주는 값: (BGR 이미지, 실제로 그려진 입자들의 등가원 지름 mm 목록)
 
     다각형을 칠하면 경계 픽셀까지 칠해져 면적이 요청한 값보다 조금 커진다.
@@ -169,7 +172,7 @@ def render_particles(size_px, px_per_mm, particles, chaff=(), shading=0.0, noise
     cov_chaff, _ = draw(chaff)
     img = np.empty((size_px, size_px, 3), dtype=np.float64)
     for ch in range(3):
-        img[..., ch] = PAPER_BGR[ch] * (1 - cov_coffee - cov_chaff) + COFFEE_BGR[ch] * cov_coffee + CHAFF_BGR[ch] * cov_chaff
+        img[..., ch] = PAPER_BGR[ch] * (1 - cov_coffee - cov_chaff) + COFFEE_BGR[ch] * cov_coffee + chaff_bgr[ch] * cov_chaff
     if shading:
         img *= (1.0 - shading * np.linspace(0, 1, size_px))[None, :, None]
     if noise_sigma:

@@ -209,18 +209,28 @@ MIN_DIAMETER_PX = 5.0
 # 이 띠에 걸친 입자는 칸 경계에 걸려 잘린 입자로 보고 뺀다.
 BORDER_BAND_MM = 0.5
 
-# 붙은 입자 덩어리를 가려내는 두 기준.
-# - 넓이 ÷ 볼록 껍질 넓이가 이보다 작으면 여러 입자가 엉킨 덩어리로 본다.
-#   실제 사진에서 이 값이 0.85보다 작은 덩어리를 빼자 클릭별 부피 중앙값 비율이 메버릭 클릭표 비율과 비슷해졌다.
-# - 두 입자가 딱 붙은 짝은 넓이 비율이 0.88쯤이라 위 기준에 걸리지 않는다. 대신 붙은 자리가 잘록하게
-#   들어가므로, 가장 깊게 들어간 곳의 깊이가 같은 넓이 원 반지름의 이 비율보다 크면 덩어리로 본다.
-#   합성 입자에서 단일 입자는 0.18 이하였고, 0.35로 두면 붙은 짝의 약 90%를 잡는다.
-#   실제 사진의 단일 입자는 가장자리가 더 거칠어서 0.25로는 너무 많이 뺐다.
-#   메버릭 클릭표는 인터넷 기준의 비교용 값이라 이 값을 그 표에 맞추지는 않았다.
-MIN_SOLIDITY = 0.85
-MAX_NECK_DEPTH_RATIO = 0.35
+# 붙은 입자 나누기와 덩어리·은피 가려내기 (10/19 바꿈).
+# 예전에는 오목한 물체(넓이 ÷ 볼록 껍질 넓이 < 0.85, 또는 깊게 잘록한 물체)를 통째로 뺐다. 그런데 실제 사진에서
+# 그렇게 뺀 것이 가루 전체 부피의 47~96%였고, 잘라 모아 보니 대부분 혼자 있는 울퉁불퉁한 1~2 mm 입자였다.
+# 굵게 갈수록 큰 입자가 더 많이 빠져 클릭 차이가 줄어 보였다(105클릭이 95클릭보다 작게 나옴). 그래서
+# 1) 잘록한 곳이 있으면 나눠서 조각마다 잰다. 물체 안쪽의 두께(가장자리까지 거리)가 봉우리인 곳을 입자 하나로 보고,
+#    두 봉우리 사이의 가장 얇은 곳이 작은 쪽 봉우리 두께의 NECK_RATIO보다 얇으면 다른 입자로 나눈다.
+#    지름이 같은 원 두 개가 0.95배 거리로 겹치면 잘록한 곳이 0.31이라 나뉜다. 합성 입자(꼭짓점을 ±20% 흔든 다각형)에서는
+#    지름의 0.95배 거리로 겹친 짝의 75%, 맞닿은 짝의 92%를 나눴고, 0.8배 거리까지 겹친 허리 굵은 입자는 하나도 나누지 않았다.
+# 2) 나눈 조각이 진한 커피보다 노란 정도(Lab b*)가 CHAFF_YELLOW 넘게 크면 은피로 보고 뺀다.
+#    실제 사진에서 큰 은피 조각은 +7~+11, 커피 입자는 -3~+3이었다.
+# 3) 나눈 뒤에도 넓이 ÷ 볼록 껍질 넓이가 MIN_SOLIDITY보다 작은 조각은 여러 입자가 넓게 엉킨 덩어리로 보고 뺀다.
+#    실제 사진에서 혼자 있는 큰 입자는 0.82 이상, 촘촘히 편 사진의 엉킨 덩어리는 대부분 0.47~0.73이었다.
+# 기준값은 큰 물체를 잘라 모은 사진을 눈으로 나눈 결과로 정했고, 클릭 순서에 맞추지 않았다.
+NECK_RATIO = 0.5
+CHAFF_YELLOW = 6.0
+MIN_SOLIDITY = 0.75
+# 넓이 ÷ 볼록 껍질 넓이가 이 값 이상이면 거의 볼록해서 붙은 짝일 수 없으므로 나누기를 건너뛴다 (계산을 줄이려고).
+SPLIT_BELOW_SOLIDITY = 0.95
 
 # 배경(종이) 밝기를 추정할 때 지우는 가장 큰 입자 크기(mm). 이보다 큰 입자는 배경으로 섞일 수 있다.
+# 나눈 뒤에도 이보다 큰 조각은 크기를 믿을 수 없고 한 입자일 수도 없으므로(메버릭 가장 굵은 125클릭이 1.3 mm)
+# 덩어리로 보고 뺀다.
 MAX_PARTICLE_MM = 3.0
 
 
@@ -235,10 +245,11 @@ class ParticleMeasurement:
     min_diameter_um: float  # 이보다 작은 점은 재지 않았다 (검출 하한)
     excluded_chaff: int  # 은피로 보고 뺀 조각 수
     excluded_border: int  # 칸 경계에 걸려 뺀 입자 수
-    excluded_clumps: int = 0  # 여러 입자가 붙은 덩어리로 보여 뺀 수
+    excluded_clumps: int = 0  # 나눈 뒤에도 여러 입자가 엉킨 덩어리로 보여 뺀 수
     warnings: tuple = ()
-    # 화면에 겹쳐 그릴 윤곽선. 종류("measured" 잰 입자, "clump" 덩어리, "border" 테두리에 걸린 입자)마다
-    # 펴진 이미지 좌표(픽셀)의 윤곽선 목록. "measured"는 diameters_um과 같은 순서다.
+    # 화면에 겹쳐 그릴 윤곽선. 종류("measured" 잰 입자, "clump" 덩어리, "border" 테두리에 걸린 입자,
+    # "chaff" 커피 입자만큼 어두운 은피)마다 펴진 이미지 좌표(픽셀)의 윤곽선 목록. "measured"는 diameters_um과 같은 순서다.
+    # 나눈 입자는 조각마다 윤곽선이 하나씩이다.
     outlines: dict = field(default_factory=dict)
 
 
@@ -273,9 +284,10 @@ def measure_particles(image, um_per_px):
        경계 픽셀은 반쯤 덮였으므로, 가운데 기준이면 면적이 치우치지 않는다.
     3. 커피보다 밝고 노란 조각은 은피로 보고 센 뒤 뺀다.
     4. 칸 가장자리 띠에 걸친 입자는 잘린 입자로 보고 뺀다.
-    5. 오목하게 들어간 곳이 많은 덩어리(붙은 입자)는 큰 입자 하나로 잘못 재지 않도록 뺀다.
-    6. 입자마다 덮인 비율을 더해 면적을 구하고, 같은 면적의 원 지름으로 바꾼다.
-    7. 화면에 겹쳐 그릴 수 있게 잰 입자·덩어리·테두리 입자의 윤곽선도 함께 돌려준다.
+    5. 서로 붙은 입자는 잘록한 곳에서 나눠 조각마다 잰다 (위 NECK_RATIO 설명 참고).
+    6. 조각마다 덮인 비율을 더해 면적을 구하고, 같은 면적의 원 지름으로 바꾼다.
+       커피만큼 어두워도 노란 조각은 은피로, 나눈 뒤에도 엉킨 조각은 덩어리로 보고 뺀다.
+    7. 화면에 겹쳐 그릴 수 있게 잰 입자·덩어리·테두리 입자·은피의 윤곽선도 함께 돌려준다.
     """
     px_per_mm = 1000.0 / um_per_px
     level = flatten_lighting(image, px_per_mm)
@@ -286,7 +298,7 @@ def measure_particles(image, um_per_px):
 
     empty = ParticleMeasurement(
         np.array([]), np.zeros((0, 2)), um_per_px, float("nan"), MIN_DIAMETER_PX * um_per_px, 0, 0, 0,
-        ("가루 칸에서 입자를 찾지 못했어요.",), {"measured": [], "clump": [], "border": []},
+        ("가루 칸에서 입자를 찾지 못했어요.",), {"measured": [], "clump": [], "border": [], "chaff": []},
     )
     dark = level[inner & (level < 0.6)]
     if dark.size == 0:
@@ -296,36 +308,50 @@ def measure_particles(image, um_per_px):
     coffee = (level < threshold) & inner
 
     excluded_chaff = _count_chaff(image, level, coffee, inner, threshold)
+    # 노란 정도(Lab b*). 기준은 진한 커피 입자 안쪽이다. 흑백 사진이면 색으로 은피를 가리지 않는다.
+    yellow = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)[..., 2].astype(np.float32) if image.ndim == 3 else None
+    coffee_yellow = float(np.median(yellow[coffee & (level < coffee_level + 0.05)])) if yellow is not None else 0.0
 
     n, labels, stats, _ = cv2.connectedComponentsWithStats(coffee.astype(np.uint8), connectivity=8)
     coverage = np.clip((1.0 - level) / (1.0 - coffee_level), 0.0, 1.0)
     diameters, centroids = [], []
-    outlines = {"measured": [], "clump": [], "border": []}
+    outlines = {"measured": [], "clump": [], "border": [], "chaff": []}
     for i in range(1, n):
-        x, y, bw, bh, pixel_count = stats[i]
+        x, y, bw, bh, _ = stats[i]
         mask = labels[y : y + bh, x : x + bw] == i
         if x <= band or y <= band or x + bw >= w - band or y + bh >= h - band:
             outlines["border"].append(_outline(mask, x, y))
-            continue
-        if 2.0 * np.sqrt(pixel_count / np.pi) >= MIN_DIAMETER_PX and _is_clump(mask):
-            outlines["clump"].append(_outline(mask, x, y))
             continue
         # 경계의 반쯤 덮인 픽셀까지 넣으려고 한 픽셀 넓힌 영역에서 덮인 비율을 더한다.
         y0, y1, x0, x1 = max(y - 1, 0), min(y + bh + 1, h), max(x - 1, 0), min(x + bw + 1, w)
         region = cv2.dilate((labels[y0:y1, x0:x1] == i).astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
         area_px = float(coverage[y0:y1, x0:x1][region].sum())
-        d_px = 2.0 * np.sqrt(area_px / np.pi)
-        if d_px < MIN_DIAMETER_PX:
+        if 2.0 * np.sqrt(area_px / np.pi) < MIN_DIAMETER_PX:
             continue
-        ys, xs = np.nonzero(region)
-        weights = coverage[y0:y1, x0:x1][region]
-        cx = (np.sum(xs * weights) / weights.sum() + x0) / px_per_mm
-        cy = (np.sum(ys * weights) / weights.sum() + y0) / px_per_mm
-        diameters.append(d_px * um_per_px)
-        centroids.append((cx, cy))
-        outlines["measured"].append(_outline(mask, x, y))
+        pieces, k = _split_touching(mask) if _solidity(mask) < SPLIT_BELOW_SOLIDITY else (mask.astype(np.int32), 1)
+        # 넓힌 영역의 면적을 조각마다 안쪽 덮인 비율만큼 나눠 준다.
+        cov = coverage[y : y + bh, x : x + bw]
+        total = float(cov[pieces > 0].sum())
+        for j in range(1, k + 1):
+            piece = pieces == j
+            d_px = 2.0 * np.sqrt(area_px * float(cov[piece].sum()) / total / np.pi)
+            if d_px < MIN_DIAMETER_PX:
+                continue
+            if yellow is not None and np.median(yellow[y : y + bh, x : x + bw][piece]) - coffee_yellow > CHAFF_YELLOW:
+                outlines["chaff"].append(_outline(piece, x, y))
+                continue
+            if _solidity(piece) < MIN_SOLIDITY or d_px * um_per_px > MAX_PARTICLE_MM * 1000:
+                outlines["clump"].append(_outline(piece, x, y))
+                continue
+            ys, xs = np.nonzero(piece)
+            weights = cov[piece]
+            diameters.append(d_px * um_per_px)
+            centroids.append(((np.sum(xs * weights) / weights.sum() + x) / px_per_mm,
+                              (np.sum(ys * weights) / weights.sum() + y) / px_per_mm))
+            outlines["measured"].append(_outline(piece, x, y))
 
     excluded_border, excluded_clumps = len(outlines["border"]), len(outlines["clump"])
+    excluded_chaff += len(outlines["chaff"])
     if not diameters:
         # 잰 입자가 없어도 무엇을 왜 뺐는지 보여줄 수 있게 뺀 개수와 윤곽선은 돌려준다.
         warning = "가루 칸에서 잴 수 있는 입자를 찾지 못했어요."
@@ -350,24 +376,57 @@ def _outline(mask, x, y):
     return max(contours, key=cv2.contourArea) + np.array([x - 1, y - 1], dtype=np.int32)
 
 
-def _is_clump(mask):
-    """여러 입자가 붙은 덩어리인지 판단한다 (위 MIN_SOLIDITY, MAX_NECK_DEPTH_RATIO 설명 참고)."""
+def _solidity(mask):
+    """넓이 ÷ 볼록 껍질 넓이. 볼록한 입자는 1에 가깝고, 오목하게 들어간 곳이 많을수록 작다."""
     padded = cv2.copyMakeBorder(mask.astype(np.uint8), 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
     contours, _ = cv2.findContours(padded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    contour = max(contours, key=cv2.contourArea)
-    area = float(np.count_nonzero(mask))
-    if area / max(cv2.contourArea(cv2.convexHull(contour)), 1.0) < MIN_SOLIDITY:
-        return True
-    # 가늘게 비스듬히 이어진 입자는 윤곽선이 제자리를 되밟아서, 볼록 껍질의 점 순서가 한 번 뒤집혀 나올 수 있다.
-    # convexityDefects는 순서가 한 방향이어야 하므로 정렬해서 넘긴다 (10/18 B02 사진에서 멈춘 경우).
-    hull_idx = np.sort(cv2.convexHull(contour, returnPoints=False), axis=0)
-    if len(hull_idx) <= 3:
-        return False
-    defects = cv2.convexityDefects(contour, hull_idx)
-    if defects is None:
-        return False
-    deepest = defects[:, 0, 3].max() / 256.0  # OpenCV는 깊이를 256배 한 정수로 준다
-    return deepest / np.sqrt(area / np.pi) > MAX_NECK_DEPTH_RATIO
+    hull = cv2.convexHull(max(contours, key=cv2.contourArea))
+    return float(np.count_nonzero(mask)) / max(cv2.contourArea(hull), 1.0)
+
+
+_NEIGHBORS = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
+
+
+def _split_touching(mask):
+    """붙은 입자를 잘록한 곳에서 나눈다. (조각 번호 지도 0=바깥 1..k, 조각 수 k)
+
+    물체 안 픽셀마다 가장자리까지의 거리(두께)를 구하고, 두꺼운 픽셀부터 차례로 이웃과 이어 붙인다.
+    서로 다른 봉우리에서 자란 두 무리가 만나면, 만난 곳의 두께가 작은 쪽 봉우리 두께의 NECK_RATIO 이상일 때만
+    한 입자로 합친다. 더 얇으면 잘록한 목으로 보고 따로 둔다. 검출 하한보다 얇은 봉우리는 가장자리의 작은 돌기라
+    늘 합친다.
+    """
+    padded = np.pad(mask.astype(np.uint8), 1)
+    h, w = padded.shape
+    depth = cv2.distanceTransform(padded, cv2.DIST_L2, 5).ravel()
+    order = np.flatnonzero(padded.ravel())
+    order = order[np.argsort(-depth[order], kind="stable")]
+    parent = np.full(h * w, -1, dtype=np.int64)  # 아직 안 본 픽셀은 -1
+    peak = {}  # 무리의 대표 픽셀 → 봉우리 두께
+
+    def root(p):
+        while parent[p] != p:
+            parent[p] = parent[parent[p]]
+            p = parent[p]
+        return p
+
+    for p in order:
+        py, px = divmod(int(p), w)
+        roots = {root(q) for q in ((py + dy) * w + px + dx for dy, dx in _NEIGHBORS) if parent[q] >= 0}
+        if not roots:
+            parent[p] = p
+            peak[p] = depth[p]
+            continue
+        main = max(roots, key=peak.get)
+        parent[p] = main
+        for other in roots - {main}:
+            low = min(peak[other], peak[main])
+            if low < MIN_DIAMETER_PX / 2 or depth[p] >= NECK_RATIO * low:
+                parent[other] = main
+    pieces = np.zeros(h * w, dtype=np.int32)
+    numbers = {}
+    for p in np.flatnonzero(padded.ravel()):
+        pieces[p] = numbers.setdefault(root(p), len(numbers) + 1)
+    return pieces.reshape(h, w)[1:-1, 1:-1], len(numbers)
 
 
 def _count_chaff(image, level, coffee, inner, threshold):
@@ -511,7 +570,7 @@ def combine_measurements(measurements):
     clumps = sum(m.excluded_clumps for m in usable)
     if clumps > 0.5 * d.size:
         warnings.append(
-            f"붙어 있어서 뺀 덩어리가 {clumps}개로 많아요. 큰 입자가 덜 잡혔을 수 있으니 가루를 더 얇게 펴 주세요."
+            f"여러 알이 엉켜서 뺀 덩어리가 {clumps}개로 많아요. 큰 입자가 덜 잡혔을 수 있으니 가루를 더 얇게 펴 주세요."
         )
     d10, d50, d90 = (volume_percentile(d, q) for q in (10, 50, 90))
     return GrindProfile(

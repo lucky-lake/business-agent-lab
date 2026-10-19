@@ -38,8 +38,9 @@ GRAY = "#8B95A1"
 GRAY_LIGHT = "#B0B8C1"
 FONT = "Pretendard Variable, sans-serif"
 
-# 사진 위 윤곽선 (RGB): 잰 입자만 포인트 컬러로 그리고, 뺀 입자(덩어리, 칸 테두리)는 회색으로 낮춘다.
-OUTLINE_COLORS = {"measured": (49, 130, 246), "clump": (139, 149, 161), "border": (139, 149, 161)}
+# 사진 위 윤곽선 (RGB): 잰 입자만 포인트 컬러로 그리고, 뺀 입자(덩어리, 칸 테두리, 은피)는 회색으로 낮춘다.
+OUTLINE_COLORS = {"measured": (49, 130, 246), "clump": (139, 149, 161), "border": (139, 149, 161),
+                  "chaff": (139, 149, 161)}
 SIZE_TICKS = [100, 200, 300, 500, 700, 1000, 1500, 2000, 3000]
 
 # 맛 6항목의 설명 (docs/BREW_PROTOCOL.md '맛 기준'과 같다). 무엇을 매기는지, 점수 기준.
@@ -164,7 +165,7 @@ def outline_image(rectified, measurement):
     image = rectified.image
     rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) if image.ndim == 3 else cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
     thickness = max(1, round(max(rgb.shape[:2]) / 500))
-    for kind in ("clump", "border", "measured"):  # 잰 입자를 마지막에 칠해 위에 보이게 한다
+    for kind in ("clump", "border", "chaff", "measured"):  # 잰 입자를 마지막에 칠해 위에 보이게 한다
         outlines = measurement.outlines.get(kind, [])
         if not outlines:
             continue
@@ -233,7 +234,7 @@ def show_photo_result(rectified, measurement):
         html(rows([
             ("이 사진의 대표 크기", f"{measurement.d50_volume_um:.0f} µm" if measured else "없음"),
             ("잰 입자", f"{measured}개"),
-            ("붙어 있어서 뺀 덩어리", f"{measurement.excluded_clumps}개"),
+            ("여러 알이 엉켜서 뺀 덩어리", f"{measurement.excluded_clumps}개"),
             ("칸 테두리에 걸려 뺀 입자", f"{measurement.excluded_border}개"),
             ("은피로 보고 뺀 조각", f"{measurement.excluded_chaff}개"),
             ("사용한 칸", f"{rectified.zone.name}칸, 픽셀당 {rectified.um_per_px:.0f} µm"),
@@ -330,7 +331,8 @@ def grind_tab():
         show_saved_profiles()
         return
 
-    section("사진별 결과", "파란 선은 잰 입자, 회색 선은 뺀 입자(서로 붙은 덩어리, 칸 테두리에 걸린 입자)예요.")
+    section("사진별 결과", "파란 선은 잰 입자, 회색 선은 뺀 것(여러 알이 엉킨 덩어리, 칸 테두리에 걸린 입자, 은피)이에요. "
+                        "붙은 입자는 잘록한 곳에서 나눠 따로 재요.")
     measurements, names = [], []
     for upload in uploads:
         with st.spinner(f"{upload.name} 분석 중..."):
