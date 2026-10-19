@@ -139,6 +139,21 @@ def test_tutorial_can_be_opened_from_home_and_skipped(monkeypatch, my_files):
     assert has_text(at, "1 / 6 단계")
 
 
+def test_model_check_summarizes_errors_and_opens_the_cup_you_tap(monkeypatch, my_files):
+    # 예측과 실제: 요약 카드(판정 기준 안 몇 잔), 잔마다 한 줄, 누른 잔의 자세한 비교
+    from dripcoffee import calibration as cal
+    comparisons = cal.compare_with_log(cal.load_brews(my_files[0]))
+    at = start(monkeypatch, *my_files)
+    button(at, "home-check").click().run()
+    assert not at.exception and has_text(at, "판정 기준 안") and has_text(at, "치우침")
+    assert all(any(b.key == f"check-cup-{c.brew.brew_id}" for b in at.button) for c in comparisons)
+    newest = comparisons[-1].brew  # 처음에는 가장 최근 잔이 펼쳐져 있다
+    assert has_text(at, f"{int(newest.date[5:7])}월 {int(newest.date[8:])}일 · {newest.bean_id} ")
+    flagged = next(c for c in comparisons if c.brew.flag == "막힘")
+    button(at, f"check-cup-{flagged.brew.brew_id}").click().run()
+    assert not at.exception and has_text(at, "판정에서 뺌") and has_text(at, "보정과 위 요약에서는 빼요")
+
+
 def test_bean_starts_blank_and_must_be_chosen(monkeypatch, my_files):
     at = start(monkeypatch, *my_files)
     button(at, "home-start").click().run()

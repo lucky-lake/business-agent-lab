@@ -250,7 +250,7 @@ STYLE = """
 
 /* 시작 화면: 커피 아이콘이 튀어나오고, 지난 잔과 내 기록은 누를 수 있는 목록으로 */
 .dc-home-icon { width: 64px; height: 64px; font-size: 34px; margin-bottom: 18px; animation: dc-pop .45s var(--dc-spring) both; }
-.st-key-home-list { gap: 0; padding: 6px 0; border-radius: 24px; background: #FFFFFF;
+.st-key-home-list, .st-key-check-list { gap: 0; padding: 6px 0; border-radius: 24px; background: #FFFFFF;
                     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04); animation: dc-rise .4s .08s var(--dc-ease) both; }
 .st-key-home-check button p { font-size: 13px; color: #8B95A1; }
 /* 누를 수 있는 목록 한 줄 (토스 ListRow, list_row): 보이는 내용은 HTML, 그 위를 투명한 버튼이 통째로 덮는다 */
@@ -277,6 +277,19 @@ STYLE = """
 .dc-lrow-go.muted { color: #8B95A1; font-weight: 500; }
 .dc-lrow-chev { font-family: "Material Symbols Rounded"; font-size: 22px; color: #B0B8C1; margin-left: -8px; }
 @media (max-width: 480px) { .dc-wide { display: none; } .dc-lrow { gap: 10px; padding: 12px 16px; } }
+.dc-lrow.on { background: #E8F3FF; }
+/* 모델 점검 > 예측과 실제: 가운데 막대가 판정 기준(±30초), 점이 예측과 실제의 차이. 기준 밖은 빨갛게, 표시 잔은 회색 */
+.dc-band { position: relative; flex: none; width: 72px; height: 16px; }
+.dc-band::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 4px; border-radius: 2px;
+                   background: #D6E8FF; }
+.dc-band::after { content: ""; position: absolute; left: 50%; top: 2px; width: 1px; height: 12px; background: #B0B8C1; }
+.dc-band i { position: absolute; top: 3px; z-index: 1; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%;
+             background: #3182F6; }
+.dc-band i.out { background: #F04452; }
+.dc-band i.muted { background: #B0B8C1; }
+.dc-check-pill { flex: none; min-width: 52px; text-align: center; }
+.dc-pill.out { background: #FFF1F1; color: #F04452; }
+.dc-pill.muted { background: #F2F4F6; color: #8B95A1; }
 
 /* 내 기록: 날짜별 잔 목록. 표시(막힘 등)가 있는 잔은 흐리게, 사진이 없는 잔은 꼬리표 */
 .dc-cups { animation: dc-rise .4s var(--dc-ease) both; }
@@ -1195,7 +1208,8 @@ def gap(error, actual_text, unit, fewer, more):
         return "실제 값은 기록하지 않았어요."
     if abs(error) < 0.5:
         return f"실제 {actual_text} · 실제와 거의 같아요."
-    return f"실제 {actual_text} · 예측이 {abs(error):.1f}{unit} {fewer if error < 0 else more}.".replace(".0" + unit, unit)
+    size = f"{abs(error):.0f}" if unit == "초" else f"{abs(error):.1f}".removesuffix(".0")  # 초는 줄의 '−22초'와 같게 정수로
+    return f"실제 {actual_text} · 예측이 {size}{unit} {fewer if error < 0 else more}."
 
 
 def comparison_table(comparisons):
@@ -1236,47 +1250,96 @@ def error_summary(comparisons):
              "'크기 평균'은 부호를 빼고 얼마나 빗나가는지예요.</div>")
 
 
-def compare_view(brews):
-    """기록한 잔을 같은 레시피·분쇄로 다시 계산해 실제와 나란히 보여준다."""
-    comparisons = cal.compare_with_log(brews)
-    if not comparisons:
-        notice("비교할 기록이 없어요. 분쇄 대표 크기가 있는 잔을 기록하면 여기서 예측과 비교할 수 있어요.")
+VALIDATION_LIMITS = (30.0, 6.0)  # 판정 기준: 끊김 ±30초, 음료 ±6 g (MODEL.md 6절, 검증 잔을 내리기 전에 정함)
+
+
+def within_limits(c):
+    """끊김과 음료 무게가 판정 기준 안인지. 음료를 적지 않은 잔은 끊김만 본다."""
+    end_ok = c.end_error_s is not None and abs(c.end_error_s) <= VALIDATION_LIMITS[0]
+    return end_ok and (c.beverage_error_g is None or abs(c.beverage_error_g) <= VALIDATION_LIMITS[1])
+
+
+def check_summary(comparisons):
+    """표시(막힘, 연습 등)가 없는 잔으로 모델이 얼마나 맞히는지: 빗나간 크기, 판정 기준 안 잔 수, 치우침."""
+    normal = [c for c in comparisons if not c.brew.flag]
+    ends = [c.end_error_s for c in normal if c.end_error_s is not None]
+    drinks = [c.beverage_error_g for c in normal if c.beverage_error_g is not None]
+    if not ends:
         return
-    newest_first = list(reversed(comparisons))
+    bias = sum(ends) / len(ends)
+    summary(
+        tile("timer", "끊김 시각", f"{sum(map(abs, ends)) / len(ends):.0f}", "초", "평균 이만큼 빗나가요"),
+        tile("local_cafe", "음료 무게", f"{sum(map(abs, drinks)) / len(drinks):.1f}" if drinks else "–", "g" if drinks else "",
+             "평균 이만큼 빗나가요"),
+        tile("check_circle", "판정 기준 안", f"{sum(map(within_limits, normal))}", f"/ {len(normal)}잔",
+             f"끊김 ±{VALIDATION_LIMITS[0]:g}초 · 음료 ±{VALIDATION_LIMITS[1]:g} g"),
+        tile("swap_horiz", "치우침", f"{bias:+.0f}", "초", "예측이 짧은 편이에요" if bias < 0 else "예측이 긴 편이에요"),
+    )
+    html('<div class="dc-caption">표시(막힘, 연습 등)가 없는 잔만 셌어요. 치우침은 (예측 − 실제)의 평균이에요.</div>')
 
-    def label(i):
-        b = newest_first[i].brew
-        return f"{b.brew_id} · {b.bean_id} {cell(b.grinder_clicks)}클릭 · 실제 끊김 {clock(b.drawdown_end_s)}"
 
-    i = st.selectbox("기록한 잔", range(len(newest_first)), format_func=label, key="predict-compare-cup")
-    c = newest_first[i]
+def choose_check_cup(brew_id):
+    st.session_state["check-cup"] = brew_id
+
+
+def check_row(c, chosen):
+    """잔 한 줄: 날짜·원두·클릭, 예측과 실제 끊김, 판정 기준 막대 위의 점, 차이. 누르면 그 잔을 아래에 자세히."""
+    b, error = c.brew, c.end_error_s
+    state = "muted" if b.flag else ("" if within_limits(c) else "out")
+    spot = 50 + max(-1.0, min(1.0, (error or 0) / VALIDATION_LIMITS[0])) * 50  # 막대 끝을 넘으면 끝에 붙인다
+    title = f"{short_date(b.date)} · {b.bean_id} {cell(b.grinder_clicks)}클릭"
+    sub = f"예측 {clock(c.prediction.drawdown_end_s)} · 실제 {clock(b.drawdown_end_s)}" + (f" · {b.flag}, 판정에서 뺌" if b.flag else "")
+    markup = (f'<div class="dc-lrow{" on" if chosen else ""}"><span class="dc-lrow-text"><b>{escape(title)}</b>'
+              f'<small>{escape(sub)}</small></span><span class="dc-band" aria-hidden="true">'
+              f'<i class="{state}" style="left:{spot:.0f}%"></i></span>'
+              f'<span class="dc-pill dc-check-pill {state}">{f"{error:+.0f}초" if error is not None else "–"}</span></div>')
+    list_row(f"check-cup-{b.brew_id}", markup, f"{title} 자세히 보기", choose_check_cup, (b.brew_id,))
+
+
+def check_detail(c):
+    """누른 잔: 같은 레시피·분쇄로 다시 계산한 예측과 실제, 레시피, 고인 물 그래프."""
     b, prediction = c.brew, c.prediction
+    section(f"{short_date(b.date)} · {b.bean_id} {b.row.get('bean_name', '')}".strip(),
+            "같은 레시피·분쇄로 모델을 다시 돌린 값이에요. 추출수율과 농도는 굴절계가 없어 실제와 비교할 수 없어요.")
+    if b.flag:
+        notice(f"'{b.flag}' 표시가 있는 잔이에요. 보정과 위 요약에서는 빼요.")
+    summary(
+        tile("timer", "끊김 (예측)", clock(prediction.drawdown_end_s), "",
+             gap(c.end_error_s, clock(b.drawdown_end_s), "초", "짧아요", "길어요")),
+        tile("local_cafe", "음료 (예측)", f"{prediction.beverage_g:.0f}", "g",
+             gap(c.beverage_error_g, f"{cell(b.beverage_g)} g", " g", "적어요", "많아요")),
+        tile("science", "추출수율 (예측)", f"{prediction.ey_pct:.1f}", "%", "원두 중 녹아 나온 비율"),
+        tile("opacity", "농도 (예측)", f"{prediction.tds_cup_pct:.2f}", "%", f"가수 전 {prediction.tds_pct:.2f}%"),
+    )
+    st.altair_chart(timeline_chart(prediction, b.recipe(), actual_end=b.drawdown_end_s), width="stretch")
     html(rows([
-        ("원두", f"{b.bean_id} {b.row.get('bean_name', '')}".strip()),
         ("분쇄", f"{b.grinder} {cell(b.grinder_clicks)}클릭 · {c.grind_d50_um:.0f} µm"
                  + (" (같은 원두·클릭 잔의 측정)" if c.borrowed_grind else "")),
         ("레시피", f"원두 {b.dose_g:g} g · {b.water_temp_c:g} °C · 붓기 {b.pours} · 가수 {b.bypass_g:g} g"),
         ("드리퍼·필터", f"{b.row.get('dripper', '')} · {b.filter_paper or '–'}"),
     ]))
-    if b.flag:
-        notice(f"'{b.flag}' 표시가 있는 잔이에요. 보정과 아래 평균에서는 빼요.")
 
-    section("예측과 실제", "같은 레시피·분쇄로 모델을 다시 돌린 값이에요. 추출수율과 농도는 굴절계가 없어 실제와 비교할 수 없어요.")
-    html(
-        '<div class="dc-cards">'
-        + card("물줄기가 끊기는 시각 (예측)", clock(prediction.drawdown_end_s), "",
-               gap(c.end_error_s, clock(b.drawdown_end_s), "초", "짧아요", "길어요"))
-        + card("음료 (가수 전, 예측)", f"{prediction.beverage_g:.0f}", "g",
-               gap(c.beverage_error_g, f"{cell(b.beverage_g)} g", " g", "적어요", "많아요"))
-        + card("추출수율 (예측)", f"{prediction.ey_pct:.1f}", "%", "원두 무게 중 음료로 녹아 나온 비율이에요.")
-        + card("농도 (가수 후, 예측)", f"{prediction.tds_cup_pct:.2f}", "%", f"가수 전 {prediction.tds_pct:.2f}%예요.")
-        + "</div>"
-    )
-    st.altair_chart(timeline_chart(prediction, b.recipe(), actual_end=b.drawdown_end_s), width="stretch")
 
-    section("모든 기록과 비교", "차이는 예측 − 실제예요. 음수면 예측이 짧거나 적고, 양수면 길거나 많아요.")
-    comparison_table(comparisons)
-    error_summary(comparisons)
+def compare_view(brews):
+    """기록한 잔을 같은 레시피·분쇄로 다시 계산해 실제와 비교한다. 위에 요약 카드, 잔마다 한 줄(판정 기준 막대),
+    누른 잔의 자세한 비교, 모든 칸은 '표로 자세히 보기'에."""
+    comparisons = cal.compare_with_log(brews)
+    if not comparisons:
+        notice("비교할 기록이 없어요. 분쇄 대표 크기가 있는 잔을 기록하면 여기서 예측과 비교할 수 있어요.")
+        return
+    check_summary(comparisons)
+    newest_first = list(reversed(comparisons))
+    ids = [c.brew.brew_id for c in newest_first]
+    chosen = st.session_state.get("check-cup") if st.session_state.get("check-cup") in ids else ids[0]
+    section("잔마다", f"가운데 막대가 판정 기준(±{VALIDATION_LIMITS[0]:g}초)이고, 점이 예측과 실제의 차이예요. "
+                    "줄을 누르면 아래에 자세히 나와요.")
+    with st.container(key="check-list"):
+        for c in newest_first:
+            check_row(c, c.brew.brew_id == chosen)
+    check_detail(newest_first[ids.index(chosen)])
+    with st.expander("표로 자세히 보기"):
+        comparison_table(comparisons)
+        error_summary(comparisons)
 
 
 def new_recipe_view(brews):
@@ -2108,9 +2171,9 @@ def back_link(name):
     st.button("← 처음으로", type="tertiary", key=f"{name}-home", on_click=open_page, args=("home",))
 
 
-def page_header(name, title, lead):
+def page_header(name, title, lead, eyebrow="Drip Coffee"):
     back_link(name)
-    html(f'<div class="dc-eyebrow">Drip Coffee</div><div class="dc-title">{escape(title)}</div>'
+    html(f'<div class="dc-eyebrow">{escape(eyebrow)}</div><div class="dc-title">{escape(title)}</div>'
          f'<div class="dc-lead">{lead}</div>')
 
 
@@ -2329,10 +2392,10 @@ def history_page():
 
 def check_page():
     """모델 점검: 예측과 실제 비교, 레시피 직접 계산, 추천 계산 자세히, 커피 없이 분쇄 사진만 재기."""
-    page_header("check", "모델 점검", "모델이 실제 잔을 얼마나 맞히는지 보고, 레시피를 직접 계산해 봐요. "
-                "굴절계로 잰 값이 아니라 모델로 계산한 값이에요. 식과 근거는 docs/MODEL.md에 있어요.")
+    page_header("check", "모델 점검", "모델이 실제 잔을 얼마나 맞히는지 봐요. 사용자 화면이 아니라 모델을 확인하는 "
+                "화면이에요. 식과 근거는 docs/MODEL.md에 있어요.", eyebrow="검증용")
     views = ["예측과 실제", "레시피 계산", "추천 자세히", "사진만 재기"]
-    view = st.segmented_control("보기", views, default=views[0], key="check-view") or views[0]
+    view = st.segmented_control("보기", views, default=views[0], key="check-view", label_visibility="collapsed") or views[0]
     brews = cal.load_brews(BREWS_PATH)
     if view == "예측과 실제":
         compare_view(brews)
