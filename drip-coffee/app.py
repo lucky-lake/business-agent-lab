@@ -946,11 +946,11 @@ def cached_recommendation(bean_id, dose_g, log_version):
     return target, rec.recommend_recipe(target, cal.load_beans(BEANS_PATH)[bean_id], brews, dose_g)
 
 
-def pour_rows(recommendation):
-    """붓기 일정: 시각, 이번에 붓는 양(원두의 몇 배), 누적."""
+def pour_rows(recipe, pattern):
+    """붓기 일정: 시각, 이번에 붓는 양(원두의 몇 배), 누적. pattern은 뜸 뒤 붓기마다 원두의 몇 배인지."""
     items, total = [], 0.0
-    multiples = (rec.BLOOM_MULTIPLE, *recommendation.pattern)
-    for i, (pour, multiple) in enumerate(zip(recommendation.recipe.pours, multiples)):
+    multiples = (rec.BLOOM_MULTIPLE, *pattern)
+    for i, (pour, multiple) in enumerate(zip(recipe.pours, multiples)):
         total += pour.grams
         what = "뜸" if i == 0 else f"{i}번째 붓기"
         items.append((f"{clock(pour.start_s)} · {what}", f"{pour.grams:g} g (원두의 {multiple}배) · 누적 {total:g} g"))
@@ -1007,7 +1007,7 @@ def recommend_tab():
         + "</div>"
     )
     section("붓기 일정", "붓는 방식(센터 푸어, 원형 푸어 등)은 평소대로 해요. 모델은 붓는 시각과 양만 계산해요.")
-    html(rows(pour_rows(r)))
+    html(rows(pour_rows(r.recipe, r.pattern)))
 
     section("예상", "보정 전 모델이라 시간은 실제와 다를 수 있어요. 끊김은 예상 시각이 아니라 물줄기가 끊기는 순간에 드리퍼를 빼요.")
     html(
@@ -1212,9 +1212,9 @@ def flow_base_recipe(flow):
         + "</div>"
     )
     section("붓기 일정", f"{r.interval_s:g}초 간격이에요. 붓는 방식(센터·원형 푸어)은 평소대로 해요.")
-    html(rows(pour_rows(r)))
+    html(rows(pour_rows(r.recipe, r.pattern)))
     html(f'<div class="dc-caption">목표: 추출수율 {target.ey_pct:.1f}%, 농도 {target.tds_pct:.2f}% (내 선호 영역). '
-         f"예상 끊김 {clock(r.prediction.drawdown_end_s)} (보정 전 모델이라 실제와 다를 수 있어요).</div>")
+         f"예상 끊김 {clock(r.prediction.drawdown_end_s)} (모델 예측이라 원두에 따라 20초쯤 다를 수 있어요).</div>")
     notice("이제 위 클릭으로 원두를 갈고, 사진용으로 조금 덜어 축척 용지에 얇게 펴 주세요. "
            "다음 단계에서 사진으로 실제 크기를 재고, 목표와 다르면 그 가루에 맞게 레시피를 고쳐요.")
     c1, c2 = st.columns([1, 2])
@@ -1224,13 +1224,104 @@ def flow_base_recipe(flow):
         go_to(3)
 
 
-def flow_later(flow):
-    """3단계부터는 준비 중. 지금은 '모델 점검'과 '내 기록 보기'로 이어서 한다."""
-    notice("3단계(사진으로 분쇄 확인 → 레시피 맞추기)부터는 준비 중이에요. 지금은 첫 화면의 '모델 점검 → 사진만 재기'로 "
-           "사진을 재고, '내 기록 보기 → 직접 기록하기'로 기록해 주세요.")
+def size_verdict(measured_um, target_um):
+    """잰 크기가 목표와 얼마나 다른지 한 문장으로. 3% 안이면 같다고 본다(사진 측정의 흔들림보다 작음)."""
+    diff = measured_um - target_um
+    if abs(diff) <= 0.03 * target_um:
+        return "목표와 거의 같아요"
+    return f"목표보다 {abs(diff):.0f} µm {'굵어요' if diff > 0 else '고와요'}"
+
+
+def interval_text(change_s):
+    if change_s == 0:
+        return "추천 그대로예요."
+    if change_s > 0:
+        return f"추천보다 {change_s:g}초 늘렸어요. 굵은 가루가 덜 우러나지 않게 물에 더 오래 닿게 해요."
+    return f"추천보다 {-change_s:g}초 줄였어요. 고운 가루가 너무 우러나지 않게 물에 덜 닿게 해요."
+
+
+def flow_grind(flow):
+    """3단계: 분쇄 확인. 간 가루를 사진으로 재고, 목표와 다르면 붓기 간격과 가수량을 그 가루에 맞춘다(MODEL.md 9.3)."""
+    target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime)
+    html('<div class="dc-lead">간 가루를 조금 덜어 축척 용지의 <b>A칸(큰 칸)</b>에 <b>서로 닿지 않게</b> 펴고, '
+         "네 모서리의 검은 네모가 모두 보이게 위에서 찍어 주세요.<br>"
+         f"목표 대표 크기는 <b>{r.d50_um:.0f} µm</b>예요. 대표 크기는 가루 무게의 절반이 이보다 작은 크기예요.</div>")
+    clicks = st.number_input("실제로 간 클릭", min_value=0, max_value=180, step=1,
+                             value=flow.get("clicks", flow.get("hint_clicks")), key="flow-clicks",
+                             help="그라인더에서 맞춘 숫자예요. 기록에 남겨 다음에 같은 원두를 갈 때 클릭을 알려 드려요.")
+    uploads = st.file_uploader("가루 사진 (여러 장 가능)", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True,
+                               key="flow-photos",
+                               help="폰 카메라로 찍은 원본을 올려 주세요. 여러 장을 올리면 합쳐서 더 정확해요.") or []
+    measurements, names, shown = [], [], []
+    for upload in uploads:
+        with st.spinner(f"{upload.name} 재는 중..."):
+            rectified, measurement, error = analyze_upload(upload.getvalue())
+        if error:
+            notice(f"{upload.name}: {error}", error=True)
+            continue
+        shown.append((upload.name, rectified, measurement))
+        if len(measurement.diameters_um):
+            measurements.append(measurement)
+            names.append(upload.name)
+
+    if not measurements:
+        if uploads and shown:
+            notice("입자를 잰 사진이 없어요. 가루를 칸 안쪽에 듬성듬성 펴고 다시 찍어 주세요.", error=True)
+        elif not uploads:
+            notice("사진을 올리면 가루의 실제 크기를 재고, 목표와 다르면 그 가루에 맞게 레시피를 고쳐 드려요.")
+        c1, c2 = st.columns([1, 2])
+        if c1.button("이전", width="stretch", key="flow-back-3"):
+            go_to(2)
+        if c2.button("사진 없이 추천대로 내리기", width="stretch", key="flow-skip-3"):
+            flow.update(clicks=clicks, measured_d50_um=None, photo_names=[], recipe=r.recipe, pattern=r.pattern,
+                        interval_s=r.interval_s, prediction=r.prediction)
+            go_to(4)
+        return
+
+    profile = ga.combine_measurements(measurements)
+    fit = rec.refit_to_grind(r, profile.d50_um, target)
+    low, high = profile.d50_range_um
+    html(
+        '<div class="dc-cards three">'
+        + card("잰 대표 크기", f"{profile.d50_um:.0f}", "µm",
+               f"{size_verdict(profile.d50_um, r.d50_um)} (목표 {r.d50_um:.0f} µm). 같은 가루를 다시 찍으면 "
+               f"{low:.0f}~{high:.0f} µm로 나올 수 있어요.", hero=True)
+        + card("붓기 간격", f"{fit.interval_s:g}", "초", interval_text(fit.interval_change_s))
+        + card("가수", f"{fit.recipe.bypass_g:g}", "g", f"추천은 {r.recipe.bypass_g:g} g이었어요. 목표 진하기에 맞춰요.")
+        + card("예상 끊김", clock(fit.prediction.drawdown_end_s), "", "물줄기가 끊기고 방울로 바뀌는 때예요.")
+        + "</div>"
+    )
+    if not fit.reached:
+        need = "더 곱게" if profile.d50_um > r.d50_um else "더 굵게"
+        notice(f"간격을 15초까지 바꿔도 목표만큼 {'우러나지 않아요' if fit.ey_gap_pct < 0 else '덜 우러나게 하지 못해요'}"
+               f"(추출수율 {abs(fit.ey_gap_pct):.1f}%p 차이). 이대로 내려도 되고, 다음에는 {need} 갈아 주세요.")
+    for warning in profile.warnings:
+        notice(warning)
+    section("이 가루에 맞춘 붓기 일정", f"원두 {fit.recipe.dose_g:g} g · {fit.recipe.water_temp_c:g} °C · "
+                                     f"물 {fit.recipe.water_g:g} g · 그다음 가수 {fit.recipe.bypass_g:g} g")
+    html(rows(pour_rows(fit.recipe, r.pattern)))
+    with st.expander(f"사진에서 잰 입자 보기 ({len(shown)}장 · 입자 {profile.n_particles}개)"):
+        html('<div class="dc-caption">파란 선은 잰 입자, 회색 선은 뺀 것(여러 알이 엉킨 덩어리, 칸 테두리에 걸린 입자, '
+             "은피)이에요.</div>")
+        for name, rectified, measurement in shown:
+            html(f'<div class="dc-caption"><b>{escape(name)}</b></div>')
+            show_photo_result(rectified, measurement)
+
     c1, c2 = st.columns([1, 2])
     if c1.button("이전", width="stretch", key="flow-back-3"):
         go_to(2)
+    if c2.button("다음: 이 레시피로 내리기", type="primary", width="stretch", key="flow-next-3"):
+        flow.update(clicks=clicks, measured_d50_um=profile.d50_um, photo_names=names, recipe=fit.recipe,
+                    pattern=r.pattern, interval_s=fit.interval_s, prediction=fit.prediction)
+        go_to(4)
+
+
+def flow_later(flow):
+    """4단계부터는 준비 중. 지금은 '내 기록 보기'의 '직접 기록하기'로 이어서 한다."""
+    notice("4단계(내리기와 기록)부터는 준비 중이에요. 지금은 첫 화면의 '내 기록 보기 → 직접 기록하기'로 기록해 주세요.")
+    c1, c2 = st.columns([1, 2])
+    if c1.button("이전", width="stretch", key="flow-back-later"):
+        go_to(flow["step"] - 1)
     c2.button("처음으로", width="stretch", key="flow-restart", on_click=open_page, args=("home",))
 
 
@@ -1238,8 +1329,8 @@ def flow_page():
     back_link("flow")
     flow = st.session_state.setdefault("flow", {"step": 1})
     step = flow["step"]
-    flow_header(min(step, 3))
-    {1: flow_equipment, 2: flow_base_recipe}.get(step, flow_later)(flow)
+    flow_header(min(step, len(FLOW_STEPS)))
+    {1: flow_equipment, 2: flow_base_recipe, 3: flow_grind}.get(step, flow_later)(flow)
 
 
 def open_page(page):
