@@ -1033,11 +1033,142 @@ def recommend_tab():
              "그중 끊김이 2:00–3:30 안이고 출발점과 가장 덜 다른 레시피를 골라요 (MODEL.md 9.2).</div>")
 
 
+# 한 잔 내리기: 원두·장비 → 기초 추천 → 분쇄 확인 → 내리기와 기록 → 맛 평가 → 마무리
+FLOW_STEPS = ("원두와 장비", "기초 추천", "분쇄 확인", "내리기와 기록", "맛 평가", "마무리")
+BASE_NAMES = {((4, 2), 60.0): "484 레시피 (중강배전 이상)", ((3, 3, 3), 30.0): "4666 레시피"}
+
+
+def flow_header(step):
+    html(f'<div class="dc-eyebrow">{step} / {len(FLOW_STEPS)} 단계</div>'
+         f'<div class="dc-title" style="font-size:26px">{escape(FLOW_STEPS[step - 1])}</div>')
+    st.progress(step / len(FLOW_STEPS))
+
+
+def go_to(step):
+    st.session_state["flow"]["step"] = step
+    st.rerun()
+
+
+def base_name(usual):
+    """출발점 레시피의 이름. 평소 두 레시피면 그 이름, 아니면 배수 표기."""
+    return BASE_NAMES.get((tuple(usual.pattern), float(usual.interval_s)),
+                          f"{rec.pattern_text(usual.pattern)}배 / {usual.interval_s:g}초 레시피")
+
+
+def hint_text(hint, grinder):
+    """클릭 힌트를 한 문장으로."""
+    if hint is None:
+        return f"{grinder}는 클릭 기록이 없어요. 평소 감대로 갈고 다음 단계에서 사진으로 확인해요."
+    if hint.clicks is None:
+        return f"{grinder}로 {hint.near.grinder_clicks}클릭보다 {hint.direction} 갈아 보세요. {hint.basis}."
+    return f"{grinder}로 약 {hint.clicks}클릭에서 시작해 보세요. {hint.basis}"
+
+
+def flow_equipment(flow):
+    """1단계: 원두와 장비."""
+    html('<div class="dc-lead">원두와 장비를 알려 주면 오늘 한 잔을 처음부터 끝까지 안내해요.<br>'
+         "레시피를 추천하고, 간 가루를 사진으로 확인해 맞추고, 내린 결과와 맛을 기록해 다음 추천에 반영해요.</div>")
+    brews = cal.load_brews(BREWS_PATH)
+    beans = cal.load_beans()
+    bean_ids = list(beans)
+    last = brews[-1] if brews else None
+    default_bean = flow.get("bean_id") or (last.bean_id if last and last.bean_id in beans else bean_ids[0])
+    c1, c2 = st.columns([2, 1])
+    bean_id = c1.selectbox("원두", bean_ids, index=bean_ids.index(default_bean),
+                           format_func=lambda b: f"{b} {beans[b]['name']} ({beans[b]['roast_level']})", key="flow-bean")
+    dose = c2.number_input("원두 무게 (g)", min_value=5.0, max_value=40.0, step=0.1, format="%.1f",
+                           value=float(flow.get("dose_g", 20.0)), key="flow-dose")
+    if beans[bean_id]["role"] == "시험":
+        notice("시험용 원두예요. 모델을 동결한 뒤 최종 시험에서만 내려요 (MODEL.md 6절).")
+    c1, c2, c3 = st.columns(3)
+    dripper = c1.text_input("드리퍼", flow.get("dripper") or (last.row.get("dripper", "V60") if last else "V60"),
+                            key="flow-dripper")
+    filters = list(dict.fromkeys([*cal.FILTERS, *(b.filter_paper for b in brews if b.filter_paper)]))
+    chosen = flow.get("filter")
+    filter_paper = c2.selectbox("필터", filters, index=filters.index(chosen) if chosen in filters else None,
+                                placeholder="필터를 골라 주세요", accept_new_options=True, key="flow-filter",
+                                help="종이마다 물 빠지는 속도가 달라질 수 있어요. 목록에 없으면 이름을 적어요.")
+    grinders = list(dict.fromkeys([*(b.grinder for b in reversed(brews) if b.grinder), "메버릭1"]))
+    grinder = c3.selectbox("그라인더", grinders, index=grinders.index(flow["grinder"]) if flow.get("grinder") in grinders
+                           else 0, accept_new_options=True, key="flow-grinder")
+    if st.button("다음: 기초 추천 받기", type="primary", width="stretch", key="flow-next-1"):
+        if not filter_paper:
+            notice("필터를 골라 주세요. 필터마다 물 빠지는 속도가 달라질 수 있어 기록에 함께 남겨요.", error=True)
+            return
+        flow.update(bean_id=bean_id, dose_g=float(dose), dripper=dripper, filter=filter_paper, grinder=grinder)
+        go_to(2)
+
+
+def flow_base_recipe(flow):
+    """2단계: 기초 추천. 온도, 베이스 레시피, 목표 분쇄 크기와 클릭 힌트."""
+    brews = cal.load_brews(BREWS_PATH)
+    beans = cal.load_beans()
+    bean = beans[flow["bean_id"]]
+    try:
+        with st.spinner("레시피 후보를 계산하는 중..."):
+            target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime)
+    except rec.NoRecipeError as error:
+        notice(str(error), error=True)
+        if st.button("이전", key="flow-back-2"):
+            go_to(1)
+        return
+    hint = cal.click_hint(r.d50_um, flow["grinder"], bean["bean_id"], bean["roast_date"], brews)
+    flow.update(target_d50_um=r.d50_um, hint_clicks=hint.clicks if hint else None)
+    recipe = r.recipe
+    changed = (r.water_ratio != round(r.usual.water_ratio) or tuple(r.pattern) != tuple(r.usual.pattern))
+
+    html(f'<div class="dc-lead">{escape(bean["bean_id"])} {escape(bean["name"])} · {escape(bean["roast_level"])} · '
+         f"원두 {recipe.dose_g:g} g<br>베이스는 <b>{escape(base_name(r.usual))}</b>"
+         + ("이고, 목표에 맞추려고 물 양이나 붓기를 조금 바꿨어요." if changed else "예요.") + "</div>")
+    html(
+        '<div class="dc-cards three">'
+        + card("목표 분쇄", f"{r.d50_um:.0f}", "µm", hint_text(hint, flow["grinder"]), hero=True)
+        + card("물 온도", f"{recipe.water_temp_c:g}", "°C", f"{bean['roast_level']} 범위 안에서 골랐어요.")
+        + card("물", f"{recipe.water_g:g}", "g", f"원두의 {r.water_ratio}배 · {rec.pattern_text(r.pattern)}배")
+        + card("가수", f"{recipe.bypass_g:g}", "g", "드리퍼를 뺀 뒤 더하는 물이에요.")
+        + "</div>"
+    )
+    section("붓기 일정", f"{r.interval_s:g}초 간격이에요. 붓는 방식(센터·원형 푸어)은 평소대로 해요.")
+    html(rows(pour_rows(r)))
+    html(f'<div class="dc-caption">목표: 추출수율 {target.ey_pct:.1f}%, 농도 {target.tds_pct:.2f}% (내 선호 영역). '
+         f"예상 끊김 {clock(r.prediction.drawdown_end_s)} (보정 전 모델이라 실제와 다를 수 있어요).</div>")
+    notice("이제 위 클릭으로 원두를 갈고, 사진용으로 조금 덜어 축척 용지에 얇게 펴 주세요. "
+           "다음 단계에서 사진으로 실제 크기를 재고, 목표와 다르면 그 가루에 맞게 레시피를 고쳐요.")
+    c1, c2 = st.columns([1, 2])
+    if c1.button("이전", width="stretch", key="flow-back-2"):
+        go_to(1)
+    if c2.button("다음: 갈고 사진 찍기", type="primary", width="stretch", key="flow-next-2"):
+        go_to(3)
+
+
+def flow_later(flow):
+    """3단계부터는 준비 중. 지금은 도구 탭으로 이어서 한다."""
+    notice("3단계(사진으로 분쇄 확인 → 레시피 맞추기)부터는 준비 중이에요. 지금은 '분쇄도 측정' 탭에서 사진을 재고, "
+           "'레시피 추천' 탭의 '이 레시피로 기록하기'로 기록해 주세요.")
+    c1, c2 = st.columns([1, 2])
+    if c1.button("이전", width="stretch", key="flow-back-3"):
+        go_to(2)
+    if c2.button("처음으로", width="stretch", key="flow-restart"):
+        st.session_state["flow"] = {"step": 1}
+        st.rerun()
+
+
+def flow_tab():
+    flow = st.session_state.setdefault("flow", {"step": 1})
+    step = flow["step"]
+    flow_header(min(step, 3))
+    {1: flow_equipment, 2: flow_base_recipe}.get(step, flow_later)(flow)
+
+
 st.set_page_config(page_title="Drip Coffee", layout="wide")
 html(STYLE)
 html('<div class="dc-eyebrow">Drip Coffee</div><div class="dc-title">핸드드립 추출 분석·추천</div>')
 
-tab_grind, tab_predict, tab_recommend, tab_log = st.tabs(["분쇄도 측정", "추출 예측", "레시피 추천", "기록·보정"])
+tab_flow, tab_grind, tab_predict, tab_recommend, tab_log = st.tabs(
+    ["한 잔 내리기", "분쇄도 측정", "추출 예측", "레시피 추천", "기록·보정"])
+
+with tab_flow:
+    flow_tab()
 
 with tab_grind:
     grind_tab()

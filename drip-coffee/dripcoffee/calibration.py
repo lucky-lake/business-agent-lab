@@ -153,6 +153,80 @@ def compare_with_log(brews, params=DEFAULT_PARAMS):
     return comparisons
 
 
+CLICK_HINT_REACH_UM = 60  # 목표가 같은 봉투 기록과 이만큼(µm) 안이면 그 기록으로 알려 준다 (사진 측정의 흔들림 ±5% 정도)
+# 그라인더 이름에 들어간 낱말 → 인터넷 기준 클릭표(비교용, 대략). 내 기록이 없을 때 시작점으로 쓴다.
+CLICK_TABLES = {"메버릭": DATA_DIR / "reference" / "maverick_click_table.csv"}
+
+
+@dataclass
+class ClickHint:
+    """목표 분쇄 크기에 맞는 그라인더 클릭의 시작점 힌트. 갈고 나서 사진으로 다시 확인한다."""
+
+    clicks: int | None  # 시작할 클릭. 근거가 멀어 숫자를 줄 수 없으면 None (방향만 알려 줌)
+    direction: str  # 숫자 대신 방향을 줄 때 '더 곱게' 또는 '더 굵게', 아니면 ''
+    source: str  # '내 기록' 또는 '클릭표'
+    basis: str  # 화면에 보여줄 근거
+    near: Brew | None = None  # 근거가 된 잔 (내 기록일 때)
+    um_per_click: float | None = None  # 내 기록에서 구한 1클릭당 크기 변화
+
+
+def table_clicks(target_d50_um, grinder):
+    """인터넷 클릭표에서 목표 크기에 해당하는 클릭. 표가 없는 그라인더면 None. 표 밖이면 가장 가까운 끝."""
+    path = next((path for name, path in CLICK_TABLES.items() if name in str(grinder)), None)
+    if path is None:
+        return None
+    with open(path, encoding="utf-8", newline="") as f:
+        table = sorted((float(r["size_um"]), float(r["clicks"])) for r in csv.DictReader(f))
+    if target_d50_um <= table[0][0]:
+        return round(table[0][1])
+    for (s0, c0), (s1, c1) in zip(table, table[1:]):
+        if target_d50_um <= s1:
+            return round(c0 + (c1 - c0) * (target_d50_um - s0) / (s1 - s0))
+    return round(table[-1][1])
+
+
+def click_hint(target_d50_um, grinder, bean_id, roast_date, brews):
+    """목표 크기에 맞는 클릭의 시작점. 같은 봉투 기록 → 클릭표 → 다른 기록(방향만) 순서로 정한다. 근거가 없으면 None.
+
+    - 같은 봉투를 이 그라인더로 잰 기록이 있고 목표와 60 µm 안이면, 그 잔을 기준으로 1클릭당 크기 변화만큼 옮긴다. 같은 원두라도 봉투가 바뀌면 같은 클릭에서 크기가 달라서(95클릭: 1255 → 1044 µm)
+      다른 봉투 기록은 쓰지 않는다.
+    - 같은 봉투 기록이 없거나 멀면 인터넷 클릭표로 알려 준다. 사진 측정과 기준이 달라 대략이지만, 갈고 나서
+      사진으로 실제 크기를 재고 그에 맞춰 레시피를 바꾸므로(한 잔 내리기 3단계) 시작점으로는 충분하다.
+    - 그 잔을 기록하면 클릭과 사진 크기가 함께 남아, 다음에 같은 봉투를 내릴 때는 내 기록으로 알려 준다.
+    - 클릭표가 없는 그라인더는 가장 가까운 내 기록에서 방향만 알려 준다.
+    """
+    measured = [b for b in brews if b.grinder == grinder and b.grind_d50_um is not None and b.grinder_clicks is not None]
+    bags = defaultdict(list)
+    for b in measured:
+        bags[(b.bean_id, b.row.get("roast_date", ""))].append(b)
+    num = den = 0.0
+    for cups in bags.values():  # 1클릭당 크기 변화는 한 봉투를 여러 클릭으로 잰 기록에서만 구한다
+        mean_c = sum(b.grinder_clicks for b in cups) / len(cups)
+        mean_d = sum(b.grind_d50_um for b in cups) / len(cups)
+        num += sum((b.grinder_clicks - mean_c) * (b.grind_d50_um - mean_d) for b in cups)
+        den += sum((b.grinder_clicks - mean_c) ** 2 for b in cups)
+    slope = num / den if den and num > 0 else None
+
+    same_bag = bags.get((bean_id, roast_date))
+    if same_bag:
+        near = min(same_bag, key=lambda b: abs(b.grind_d50_um - target_d50_um))
+        if abs(target_d50_um - near.grind_d50_um) <= CLICK_HINT_REACH_UM:
+            gap = (target_d50_um - near.grind_d50_um) / slope if slope else 0
+            clicks = min(max(round(near.grinder_clicks + gap), 0), 180)  # 메버릭 클릭 범위 0–180
+            return ClickHint(clicks, "", "내 기록", f"같은 봉투를 {near.grinder_clicks}클릭으로 갈았을 때 "
+                             f"{near.grind_d50_um:.0f} µm였어요 ({near.brew_id})", near, slope)
+    table = table_clicks(target_d50_um, grinder)
+    if table is not None:
+        return ClickHint(table, "", "클릭표", "인터넷 클릭표 기준이라 대략이에요. 갈고 나서 사진으로 확인해요.",
+                         None, slope)
+    if not measured:
+        return None
+    near = min(measured, key=lambda b: abs(b.grind_d50_um - target_d50_um))
+    direction = "더 곱게" if target_d50_um < near.grind_d50_um else "더 굵게"
+    return ClickHint(None, direction, "내 기록", f"가장 가까운 기록은 {near.grinder_clicks}클릭 "
+                     f"{near.grind_d50_um:.0f} µm예요 ({near.brew_id}, {near.bean_id})", near, slope)
+
+
 def load_beans(path=BEANS_PATH):
     """원두 목록을 {원두 번호: 칸 dict}로 읽는다. 순서는 파일에 적은 순서."""
     with open(path, encoding="utf-8", newline="") as f:
