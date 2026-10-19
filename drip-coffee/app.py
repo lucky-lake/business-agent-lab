@@ -62,7 +62,7 @@ STYLE = """
 /* 움직임 값은 토스에서 직접 뽑았다 (10/20, toss.im 코드와 TDS Mobile 문서).
    튀는 이동 0.2~0.3초 cubic-bezier(0.34, 1.56, 0.64, 1), 부드러운 이동 cubic-bezier(0.4, 0, 0.2, 1), 색 바뀜 0.1초 */
 :root { --dc-spring: cubic-bezier(0.34, 1.56, 0.64, 1); --dc-ease: cubic-bezier(0.4, 0, 0.2, 1); }
-.block-container { max-width: 980px; padding-top: 3.5rem; padding-bottom: 6rem; }
+.block-container { max-width: 980px; padding-top: 3.5rem; padding-bottom: 10rem; }  /* 아래 고정 버튼에 가리지 않게 */
 .stTabs [data-baseweb="tab-list"] { gap: 28px; }
 .stTabs [data-baseweb="tab"] { font-size: 17px; font-weight: 600; padding: 10px 0; }
 .stTabs [data-baseweb="tab-border"] { background: #F2F4F6; }
@@ -72,7 +72,7 @@ STYLE = """
 
 .dc-eyebrow { font-size: 15px; font-weight: 600; color: #3182F6; margin-bottom: 6px; }
 .dc-home { margin: 8vh 0 28px; }
-[data-testid="stBaseButton-primary"] { min-height: 54px; border-radius: 16px; }  /* 토스처럼 크게 누르는 버튼 */
+[data-testid="stBaseButton-primary"] { min-height: 56px; border-radius: 16px; }  /* 토스 BottomCTA: 높이 56px, 모서리 16px */
 [data-testid="stBaseButton-primary"] p { font-size: 17px; font-weight: 700; }
 .dc-hero { font-size: 40px; font-weight: 800; color: #2A2A2A; letter-spacing: -0.03em; line-height: 1.25; margin: 4px 0 8px; }
 .dc-title { font-size: 32px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; line-height: 1.3; }
@@ -138,6 +138,27 @@ STYLE = """
 .dc-count::after { content: counter(dc-n); }
 @keyframes dc-count { from { --dc-n: 0; } }
 .dc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* 한 잔 내리기의 아래 고정 버튼 (토스 디자인 시스템 BottomCTA: 화면 아래에 붙고, 위로 36px 흰 그라데이션,
+   아래 여백 20px). 다 채우기 전에는 버튼 자리에 무엇을 채우면 되는지 흐리게 보여 주고, 다 채우면 버튼이 아래에서
+   튀어 올라온다 */
+.st-key-flow-cta { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); z-index: 100;
+                   width: 100%; max-width: 980px; padding: 8px 1rem 20px; background: #FFFFFF; }
+.st-key-flow-cta::before { content: ""; position: absolute; left: 0; right: 0; top: -36px; height: 36px;
+                           pointer-events: none; background: linear-gradient(to top, #FFFFFF 25%, rgba(255, 255, 255, 0)); }
+.st-key-flow-cta [data-testid="stHorizontalBlock"] { flex-wrap: nowrap; gap: 8px; }  /* 좁은 화면에서도 한 줄 */
+.st-key-flow-cta [data-testid="stColumn"] { min-width: 0 !important; width: auto !important; flex: 1 1 0 !important; }
+.st-key-flow-cta [data-testid="stColumn"]:last-child { flex: 2 1 0 !important; }
+.st-key-flow-cta [data-testid="stBaseButton-secondary"] { min-height: 56px; border-radius: 16px; border: none;
+                                                          background: #F2F4F6; color: #4E5968; }
+.st-key-flow-cta [data-testid="stBaseButton-secondary"] p,
+.st-key-flow-cta [data-testid="stBaseButton-primary"] p { font-size: 17px; font-weight: 600; }
+.st-key-flow-cta [class*="st-key-flow-next"], .st-key-flow-cta .st-key-flow-save,
+.st-key-flow-cta .st-key-flow-finish-home { animation: dc-cta-in .35s var(--dc-spring) both; }
+@keyframes dc-cta-in { from { opacity: 0; transform: translateY(32px); } to { opacity: 1; transform: none; } }
+.dc-cta-hint { min-height: 56px; display: flex; align-items: center; justify-content: center; padding: 0 16px;
+               border-radius: 16px; background: #F2F4F6; color: #8B95A1; font-size: 15px; font-weight: 600;
+               text-align: center; line-height: 1.4; animation: dc-rise .3s var(--dc-ease) both; }
 
 /* 휴대폰에서 '동작 줄이기'를 켠 사람에게는 움직이지 않는다 (숫자는 바로 최종 값) */
 @media (prefers-reduced-motion: reduce) {
@@ -1098,6 +1119,29 @@ def flow_header(step):
     st.progress(step / len(FLOW_STEPS))
 
 
+FLOW_CTA = None  # 한 잔 내리기 화면 아래에 붙는 버튼 자리. flow_page가 실행마다 단계 화면 밖에 만든다
+
+
+def bottom_cta(label, key, ready=True, hint="", back_to=None, back_key=None):
+    """토스 디자인 시스템의 BottomCTA처럼 화면 아래에 붙은 버튼. 눌렀으면 True.
+
+    ready가 아니면 버튼 대신, 무엇을 채우면 다음으로 갈 수 있는지(hint)를 같은 자리에 흐리게 보여 준다. 다 채우면
+    버튼이 아래에서 튀어 올라온다(STYLE). back_to가 있으면 왼쪽에 '이전' 버튼을 둔다.
+    단계 화면은 나타날 때 움직이므로(transform), 그 안에 두면 고정 위치가 흔들려서 단계 화면 밖의 자리에 그린다.
+    """
+    with FLOW_CTA:
+        if back_to is not None:
+            left, right = st.columns([1, 2])
+            if left.button("이전", width="stretch", key=back_key):
+                go_to(back_to)
+        else:
+            right = st.container()
+        if not ready:
+            right.html(f'<div class="dc-cta-hint">{escape(hint)}</div>')
+            return False
+        return right.button(label, type="primary", width="stretch", key=key)
+
+
 def go_to(step):
     st.session_state["flow"]["step"] = step
     st.rerun()
@@ -1215,11 +1259,8 @@ def flow_equipment(flow):
     grinder = c3.selectbox("그라인더", grinders, index=grinders.index(chosen) if chosen in grinders else None,
                            placeholder="예: 메버릭", accept_new_options=True, key="flow-grinder",
                            help="원두를 가는 기계예요. 목록에 없으면 이름을 적어요. 클릭 수를 알려 줄 때 써요.")
-    if st.button("다음: 기초 추천 받기", type="primary", width="stretch", key="flow-next-1"):
-        missing = [what for what, value in (("원두", bean_id), ("필터", filter_paper), ("그라인더", grinder)) if not value]
-        if missing:
-            notice(f"{'·'.join(missing)}를 골라 주세요. 필터는 종류마다 물 빠지는 속도가 달라 기록에 함께 남겨요.", error=True)
-            return
+    ready = bool(bean_id and filter_paper and grinder)
+    if bottom_cta("다음: 기초 추천 받기", "flow-next-1", ready, "원두·필터·그라인더를 고르면 다음으로 갈 수 있어요"):
         flow.update(bean_id=bean_id, dose_g=float(dose), dripper=dripper, filter=filter_paper, grinder=grinder)
         go_to(2)
 
@@ -1259,10 +1300,7 @@ def flow_base_recipe(flow):
          f"예상 끊김 {clock(r.prediction.drawdown_end_s)} (모델 예측이라 원두에 따라 20초쯤 다를 수 있어요).</div>")
     notice("이제 위 클릭으로 원두를 갈고, 사진용으로 조금 덜어 축척 용지에 얇게 펴 주세요. "
            "다음 단계에서 사진으로 실제 크기를 재고, 목표와 다르면 그 가루에 맞게 레시피를 고쳐요.")
-    c1, c2 = st.columns([1, 2])
-    if c1.button("이전", width="stretch", key="flow-back-2"):
-        go_to(1)
-    if c2.button("다음: 갈고 사진 찍기", type="primary", width="stretch", key="flow-next-2"):
+    if bottom_cta("다음: 갈고 사진 찍기", "flow-next-2", back_to=1, back_key="flow-back-2"):
         go_to(3)
 
 
@@ -1312,13 +1350,12 @@ def flow_grind(flow):
         elif not uploads:
             notice("사진을 올리면 가루의 실제 크기를 재고, 목표와 다르면 그 가루에 맞게 레시피를 고쳐 드려요. "
                    "사진 없이 내리면 크기를 몰라서, 이 잔으로는 입맛을 배우기 어려워요.")
-        c1, c2 = st.columns([1, 2])
-        if c1.button("이전", width="stretch", key="flow-back-3"):
-            go_to(2)
-        if c2.button("사진 없이 추천대로 내리기", width="stretch", key="flow-skip-3"):
+        if st.button("사진 없이 추천대로 내리기", type="tertiary", key="flow-skip-3"):
             flow.update(clicks=clicks, measured_d50_um=None, photo_names=[], profile=None, recipe=r.recipe,
                         pattern=r.pattern, interval_s=r.interval_s, prediction=r.prediction)
             go_to(4)
+        bottom_cta("다음: 이 레시피로 내리기", "flow-next-3", False, "가루 사진을 올리면 다음으로 갈 수 있어요",
+                   back_to=2, back_key="flow-back-3")
         return
 
     profile = ga.combine_measurements(measurements)
@@ -1350,10 +1387,7 @@ def flow_grind(flow):
             html(f'<div class="dc-caption"><b>{escape(name)}</b></div>')
             show_photo_result(rectified, measurement)
 
-    c1, c2 = st.columns([1, 2])
-    if c1.button("이전", width="stretch", key="flow-back-3"):
-        go_to(2)
-    if c2.button("다음: 이 레시피로 내리기", type="primary", width="stretch", key="flow-next-3"):
+    if bottom_cta("다음: 이 레시피로 내리기", "flow-next-3", back_to=2, back_key="flow-back-3"):
         flow.update(clicks=clicks, measured_d50_um=profile.d50_um, photo_names=names, profile=profile,
                     recipe=fit.recipe, pattern=r.pattern, interval_s=fit.interval_s, prediction=fit.prediction)
         go_to(4)
@@ -1425,13 +1459,8 @@ def flow_brew(flow):
         st.altair_chart(timeline_chart(prediction, recipe, actual_end=seconds), width="stretch")
         html('<div class="dc-caption">파란 선은 모델이 예측한 음료가 나오는 모습이에요. 진한 회색 점선이 실제로 끊긴 시각이에요.</div>')
 
-    c1, c2 = st.columns([1, 2])
-    if c1.button("이전", width="stretch", key="flow-back-4"):
-        go_to(3)
-    if c2.button("다음: 맛 평가", type="primary", width="stretch", key="flow-next-4"):
-        if not (seconds and beverage):
-            notice("물줄기가 끊긴 시각과 음료 무게를 적어 주세요. 다음 추천을 맞추는 데 써요.", error=True)
-            return
+    if bottom_cta("다음: 맛 평가", "flow-next-4", bool(seconds and beverage),
+                  "끊긴 시각과 음료 무게를 적으면 다음으로 갈 수 있어요", back_to=3, back_key="flow-back-4"):
         flow.update(drawdown_text=drawdown, drawdown_end_s=seconds, beverage_g=float(beverage), flag=flag)
         go_to(5)
 
@@ -1482,16 +1511,9 @@ def flow_taste(flow):
     picked = st.segmented_control("진하기는 어땠나요?", labels, key="flow-strength", label_visibility="collapsed")
     memo = st.text_area("메모 (선택)", key="flow-memo", placeholder="나만 보는 기록이에요. 예: 식으면서 단맛이 올라옴")
 
-    c1, c2 = st.columns([1, 2])
-    if c1.button("이전", width="stretch", key="flow-back-5"):
-        go_to(4)
-    if c2.button("이 잔 기록하기", type="primary", width="stretch", key="flow-save"):
-        if any(v is None for v in taste.values()):
-            notice("맛 6항목을 모두 매겨 주세요. 다음 추천이 내 입맛을 배우는 데 써요.", error=True)
-            return
-        if not picked:
-            notice("진하기를 골라 주세요. 다음 잔의 가수 물을 맞추는 데 써요.", error=True)
-            return
+    rated = all(v is not None for v in taste.values())
+    hint = "맛 6항목을 모두 매기면 기록할 수 있어요" if not rated else "진하기를 고르면 기록할 수 있어요"
+    if bottom_cta("이 잔 기록하기", "flow-save", rated and bool(picked), hint, back_to=4, back_key="flow-back-5"):
         strength = next(code for code, label in STRENGTH_CHOICES.items() if label == picked)
         before, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime)
         record = flow_record(flow, taste, strength, memo)
@@ -1552,9 +1574,11 @@ def flow_finish(flow):
         st.altair_chart(preference_chart(points, after, highlight=saved.brew_id), width="stretch")
         html(PREFERENCE_LEGEND)
 
-    c1, c2 = st.columns(2)
-    c1.button("처음으로", width="stretch", key="flow-finish-home", on_click=open_page, args=("home",))
-    c2.button("내 기록 보기", width="stretch", key="flow-finish-history", on_click=open_page, args=("history",))
+    with FLOW_CTA:
+        left, right = st.columns([1, 2])
+        left.button("내 기록 보기", width="stretch", key="flow-finish-history", on_click=open_page, args=("history",))
+        right.button("완료", type="primary", width="stretch", key="flow-finish-home", on_click=open_page,
+                     args=("home",))
 
 
 def flow_later(flow):
@@ -1570,7 +1594,10 @@ def flow_page():
     back_link("flow")
     flow = st.session_state.setdefault("flow", {"step": 1})
     step = flow["step"]
-    with st.container(key=f"flow-step-{step}"):  # 단계가 바뀌면 새 화면이 올라오며 나타난다 (STYLE)
+    global FLOW_CTA
+    screen = st.container(key=f"flow-step-{step}")  # 단계가 바뀌면 새 화면이 올라오며 나타난다 (STYLE)
+    FLOW_CTA = st.container(key="flow-cta")  # 화면 아래에 붙는 버튼 자리 (bottom_cta)
+    with screen:
         flow_header(min(step, len(FLOW_STEPS)))
         {1: flow_equipment, 2: flow_base_recipe, 3: flow_grind, 4: flow_brew, 5: flow_taste,
          6: flow_finish}.get(step, flow_later)(flow)

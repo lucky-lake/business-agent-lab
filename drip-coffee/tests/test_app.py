@@ -80,11 +80,11 @@ def test_bean_starts_blank_and_must_be_chosen(monkeypatch, my_files):
     assert at.selectbox(key="flow-bean").value is None  # 지난 원두가 저절로 넘어가지 않는다
     assert at.selectbox(key="flow-grinder").value == "메버릭1"  # 장비는 지난 잔 것을 채운다
     assert not has_text(at, "로스팅")  # 원두를 고르기 전에는 디게싱 안내가 없다
-    button(at, "flow-next-1").click().run()
-    assert has_text(at, "원두·필터를 골라 주세요")
+    # 다 고르기 전에는 다음 버튼 대신 무엇을 고르면 되는지 보여 준다 (다 고르면 버튼이 아래에서 올라온다)
+    assert not any(b.key == "flow-next-1" for b in at.button) and has_text(at, "원두·필터·그라인더를 고르면")
     at.selectbox(key="flow-bean").set_value("B02").run()
     assert has_text(at, "디게싱") or has_text(at, "마시기 좋은 때")
-    at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백")
+    at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백").run()
     button(at, "flow-next-1").click().run()
     assert not at.exception and has_text(at, "2 / 6 단계") and has_text(at, "목표 분쇄")
 
@@ -95,7 +95,7 @@ def test_grind_step_asks_for_a_photo_and_can_go_on_without_one(monkeypatch, my_f
     at = start(monkeypatch, *my_files)
     button(at, "home-start").click().run()
     at.selectbox(key="flow-bean").set_value("B02").run()
-    at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백")
+    at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백").run()
     button(at, "flow-next-1").click().run()
     button(at, "flow-next-2").click().run()
     assert not at.exception and has_text(at, "3 / 6 단계") and has_text(at, "A칸(큰 칸)")
@@ -110,13 +110,12 @@ def test_brew_step_compares_the_result_with_the_prediction(monkeypatch, my_files
     at = start(monkeypatch, *my_files)
     button(at, "home-start").click().run()
     at.selectbox(key="flow-bean").set_value("B02").run()
-    at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백")
+    at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백").run()
     button(at, "flow-next-1").click().run()
     button(at, "flow-next-2").click().run()
     button(at, "flow-skip-3").click().run()
     assert has_text(at, "붓기 일정") and has_text(at, "0:00")
-    button(at, "flow-next-4").click().run()
-    assert has_text(at, "물줄기가 끊긴 시각과 음료 무게를 적어 주세요")
+    assert not any(b.key == "flow-next-4" for b in at.button) and has_text(at, "끊긴 시각과 음료 무게를 적으면")
     at.text_input(key="flow-drawdown").set_value("2:3x").run()
     assert has_text(at, "2:42(분:초)")  # 잘못 적으면 적는 법을 알려 준다
     at.text_input(key="flow-drawdown").set_value("2:20").run()
@@ -133,7 +132,7 @@ def test_taste_step_needs_all_scores_and_strength_then_saves_the_cup(monkeypatch
     at = start(monkeypatch, *my_files)
     button(at, "home-start").click().run()
     at.selectbox(key="flow-bean").set_value("B02").run()
-    at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백")
+    at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백").run()
     button(at, "flow-next-1").click().run()
     button(at, "flow-next-2").click().run()
     button(at, "flow-skip-3").click().run()
@@ -144,13 +143,11 @@ def test_taste_step_needs_all_scores_and_strength_then_saves_the_cup(monkeypatch
     flow = dict(at.session_state["flow"])
     flow["measured_d50_um"] = 1150.0  # 사진으로 잰 것처럼 (AppTest는 사진 올리기를 흉내 내지 못한다)
     at.session_state["flow"] = flow
-    button(at, "flow-save").click().run()
-    assert has_text(at, "맛 6항목을 모두 매겨 주세요")
+    assert not any(b.key == "flow-save" for b in at.button) and has_text(at, "맛 6항목을 모두 매기면")
     for name, value in (("aroma", 3.5), ("flavor", 3.0), ("acidity", 1.5), ("body", 3.0), ("balance", 3.5),
                         ("aftertaste", 3.5)):
         at.select_slider(key=f"flow-taste-{name}").set_value(value).run()
-    button(at, "flow-save").click().run()
-    assert has_text(at, "진하기를 골라 주세요")
+    assert not any(b.key == "flow-save" for b in at.button) and has_text(at, "진하기를 고르면")
     next(w for w in at.get("button_group") if w.key == "flow-strength").set_value("진했어요").run()
     button(at, "flow-save").click().run()
     assert not at.exception and at.session_state["flow"]["step"] == 6
