@@ -61,11 +61,12 @@ class ModelParams:
     """모델 상수. 값과 근거, 상태(미확인/가정/보정)는 docs/MODEL.md 4절 표와 같다."""
 
     # 물 흐름 (노트1)
-    flow_resistance_ref: float = 1.57e12  # R_ref (m⁻³): 대표 크기 1000 µm, 원두 20 g 기준. 보정 계수 1. 시작값은 첫 B02 기록(96 °C, 2:20)에 맞춤
+    flow_resistance_ref: float = 1.17e12  # R_ref (m⁻³): 대표 크기 1000 µm, 원두 20 g 기준. 보정 계수 1. 시작값은 첫 B02 기록(96 °C, 2:20, 1200 µm로 가정)에 맞춤 (10/19 구멍을 넣은 모양으로 다시 맞춤)
     resistance_d_ref_um: float = 1000.0
     resistance_dose_ref_g: float = 20.0
     held_liquid_ratio: float = 2.1  # R_abs (g/g): 가루가 머금는 액체. 보정 계수 2 (노트3 M2)
-    cone_half_angle_deg: float = 30.0  # V60 원뿔 반각 (가정 → 측정 예정)
+    cone_half_angle_deg: float = 29.6  # V60 02 원뿔 반각: 제조사 규격(구경 116 mm, 높이 102 mm)에서 atan(58/102)
+    outlet_diameter_mm: float = 20.0  # 드리퍼 바닥 구멍 지름 (자로 잰 대략값). 물 높이는 이 구멍에서 잰다
     bulk_density_g_per_ml: float = 0.35  # 마른 가루 부피 밀도 (가정 → 측정 예정)
     pour_rate_g_per_s: float = 5.0  # 붓는 속도 (가정 → 측정 예정)
     # 추출 (노트2)
@@ -219,8 +220,12 @@ def predict(recipe, grind, params=DEFAULT_PARAMS):
     mu = water_viscosity(temp_c)
     rho_g_per_ml = rho / 1000.0
 
-    # 물 흐름: 원뿔 모양 드리퍼 (식 1~3)
-    tan2 = math.tan(math.radians(p.cone_half_angle_deg)) ** 2
+    # 물 흐름: 바닥 구멍에서 잘린 원뿔 모양 드리퍼 (식 1~3)
+    tan_a = math.tan(math.radians(p.cone_half_angle_deg))
+    tan2 = tan_a ** 2
+    hole_r_cm = p.outlet_diameter_mm / 20.0  # 구멍 반지름 (cm)
+    tip_h_cm = hole_r_cm / tan_a  # 원뿔 꼭짓점에서 구멍까지 높이 (잘려 나간 부분)
+    tip_ml = math.pi * hole_r_cm ** 2 * tip_h_cm / 3  # 잘려 나간 꼭지 부피 (mL = cm³)
     bed_ml = dose / p.bulk_density_g_per_ml
     resistance = (
         p.flow_resistance_ref
@@ -230,7 +235,8 @@ def predict(recipe, grind, params=DEFAULT_PARAMS):
 
     def outflow_g_per_s(free_g):
         volume_ml = bed_ml + free_g / rho_g_per_ml
-        height_m = (3 * volume_ml / (math.pi * tan2)) ** (1 / 3) / 100  # 물 표면 높이 (식 1)
+        # 물 표면 높이 (식 1): 꼭지가 있다고 치고 꼭짓점에서 잰 높이에서, 잘려 나간 꼭지 높이를 빼서 구멍에서 잰다
+        height_m = ((3 * (volume_ml + tip_ml) / (math.pi * tan2)) ** (1 / 3) - tip_h_cm) / 100
         return rho * GRAVITY * height_m / (mu * resistance) * 1e6 * rho_g_per_ml  # 식 2, m³/s → g/s
 
     released_at = _release_curve(grind, dose, temp_c, p)
