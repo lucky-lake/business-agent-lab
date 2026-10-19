@@ -8,7 +8,9 @@
 실행: streamlit run app.py
 """
 import math
+import os
 from datetime import date
+from pathlib import Path
 from html import escape
 
 import altair as alt
@@ -25,8 +27,9 @@ from dripcoffee import recommend as rec
 
 PROFILE_DIR = LOCAL_DATA_DIR / "grind_profiles"
 CLICK_TABLE = DATA_DIR / "reference" / "maverick_click_table.csv"
-BREWS_PATH = cal.BREWS_PATH
-BEANS_PATH = cal.BEANS_PATH
+# 추출 기록과 원두 목록. 테스트·미리보기에서는 환경 변수로 다른 파일을 쓰게 해 실제 기록을 건드리지 않는다.
+BREWS_PATH = Path(os.environ.get("DRIP_COFFEE_BREWS", cal.BREWS_PATH))
+BEANS_PATH = Path(os.environ.get("DRIP_COFFEE_BEANS", cal.BEANS_PATH))
 
 BRAND = "#3182F6"  # 포인트 컬러는 이것 하나만 쓴다
 TEXT = "#2A2A2A"
@@ -579,6 +582,10 @@ def preference_section(brews):
                f"내 선호 중심은 {center[0]:.1f}%, {center[1]:.2f}%예요." if center else "아직 없어서 골든컵 중심을 목표로 써요.")
         + "</div>"
     )
+    if not points:
+        notice("아직 맛을 매긴 잔이 없어서 골든컵(많은 사람이 대체로 좋아하는 범위)의 가운데를 목표로 써요. "
+               "잔을 내리고 맛을 매길수록 목표가 내 입맛 쪽으로 옮겨 가요.")
+        return
     st.altair_chart(preference_chart(points, target), width="stretch")
     html(PREFERENCE_LEGEND)
 
@@ -601,6 +608,9 @@ def log_form():
 
     brews = cal.load_brews(BREWS_PATH)
     beans = cal.load_beans(BEANS_PATH)
+    if not beans:
+        notice("아직 원두가 없어요. 첫 화면의 '시작하기'에서 원두를 먼저 추가해 주세요.")
+        return
     form = st.session_state.setdefault("log_form", 0)  # 저장할 때마다 올려서 입력칸을 새로 만든다
 
     def key(name):
@@ -948,6 +958,9 @@ def recommend_tab():
     )
     brews = cal.load_brews(BREWS_PATH)
     beans = cal.load_beans(BEANS_PATH)
+    if not beans:
+        notice("아직 원두가 없어요. 첫 화면의 '시작하기'에서 원두를 먼저 추가해 주세요.")
+        return
     bean_ids = list(beans)
     last_bean = brews[-1].bean_id if brews and brews[-1].bean_id in beans else bean_ids[0]
     c1, c2 = st.columns([2, 1])
@@ -1115,31 +1128,48 @@ def flow_equipment(flow):
     if added in beans:
         st.session_state["flow-bean"] = added
         notice(f"{added} {cal.with_object(beans[added]['name'])} 원두 목록에 더했어요.")
-    default_bean = flow.get("bean_id") or (last.bean_id if last and last.bean_id in beans else bean_ids[0])
+    if not beans:  # 처음 쓰는 사람: 원두부터 더한다
+        notice("아직 원두가 없어요. 먼저 오늘 내릴 원두를 추가해 주세요.")
+        if st.button("＋ 새 원두 추가", type="primary", width="stretch", key="flow-add-first-bean"):
+            add_bean_dialog()
+        return
+    # 원두는 늘 직접 고른다. 지난 원두가 저절로 넘어가 잘못 기록되는 일을 막으려고 비워 둔 채 시작한다
+    chosen_bean = flow.get("bean_id")
     c1, c2 = st.columns([2, 1])
-    bean_id = c1.selectbox("원두", bean_ids, index=bean_ids.index(default_bean),
+    bean_id = c1.selectbox("원두", bean_ids, index=bean_ids.index(chosen_bean) if chosen_bean in beans else None,
+                           placeholder="원두를 골라 주세요",
                            format_func=lambda b: f"{b} {beans[b]['name']} ({beans[b]['roast_level']})", key="flow-bean")
     dose = c2.number_input("원두 무게 (g)", min_value=5.0, max_value=40.0, step=0.1, format="%.1f",
-                           value=float(flow.get("dose_g", 20.0)), key="flow-dose")
+                           value=float(flow.get("dose_g", 20.0)), key="flow-dose",
+                           help="저울로 잰 원두 무게예요. 보통 한 잔에 15–20 g을 써요.")
     if st.button("＋ 새 원두 추가", type="tertiary", key="flow-add-bean"):
         add_bean_dialog()
-    if beans[bean_id]["role"] == "시험":
-        notice("시험용 원두예요. 모델을 동결한 뒤 최종 시험에서만 내려요 (MODEL.md 6절).")
-    rest_notice(beans[bean_id])
+    if bean_id:
+        if beans[bean_id]["role"] == "시험":
+            notice("시험용 원두예요. 모델을 동결한 뒤 최종 시험에서만 내려요 (MODEL.md 6절).")
+        rest_notice(beans[bean_id])
+    # 장비는 기록이 있으면 지난 잔 것을 채우고, 처음이면 비워 둔 채 예시만 보여 준다
     c1, c2, c3 = st.columns(3)
-    dripper = c1.text_input("드리퍼", flow.get("dripper") or (last.row.get("dripper", "V60") if last else "V60"),
-                            key="flow-dripper")
+    dripper = c1.text_input("드리퍼", flow.get("dripper") or (last.row.get("dripper", "") if last else ""),
+                            placeholder="예: 하리오 V60", key="flow-dripper",
+                            help="물을 붓는 깔때기 모양 도구예요. 바닥에 이름이 적혀 있어요.")
     filters = list(dict.fromkeys([*cal.FILTERS, *(b.filter_paper for b in brews if b.filter_paper)]))
     chosen = flow.get("filter")
     filter_paper = c2.selectbox("필터", filters, index=filters.index(chosen) if chosen in filters else None,
                                 placeholder="필터를 골라 주세요", accept_new_options=True, key="flow-filter",
-                                help="종이마다 물 빠지는 속도가 달라질 수 있어요. 목록에 없으면 이름을 적어요.")
-    grinders = list(dict.fromkeys([*(b.grinder for b in reversed(brews) if b.grinder), "메버릭1"]))
-    grinder = c3.selectbox("그라인더", grinders, index=grinders.index(flow["grinder"]) if flow.get("grinder") in grinders
-                           else 0, accept_new_options=True, key="flow-grinder")
+                                help="드리퍼에 끼우는 종이예요. 종이마다 물 빠지는 속도가 달라질 수 있어요. "
+                                     "목록에 없으면 이름을 적어요.")
+    recorded = [b.grinder for b in reversed(brews) if b.grinder]
+    # 기록한 그라인더 + 클릭표가 있는 그라인더(이미 기록에 같은 이름이 있으면 빼서 '메버릭1'과 '메버릭'이 겹치지 않게)
+    grinders = list(dict.fromkeys([*recorded, *(name for name in cal.CLICK_TABLES if not any(name in r for r in recorded))]))
+    chosen = flow.get("grinder") or (last.grinder if last and last.grinder else None)
+    grinder = c3.selectbox("그라인더", grinders, index=grinders.index(chosen) if chosen in grinders else None,
+                           placeholder="예: 메버릭", accept_new_options=True, key="flow-grinder",
+                           help="원두를 가는 기계예요. 목록에 없으면 이름을 적어요. 클릭 수를 알려 줄 때 써요.")
     if st.button("다음: 기초 추천 받기", type="primary", width="stretch", key="flow-next-1"):
-        if not filter_paper:
-            notice("필터를 골라 주세요. 필터마다 물 빠지는 속도가 달라질 수 있어 기록에 함께 남겨요.", error=True)
+        missing = [what for what, value in (("원두", bean_id), ("필터", filter_paper), ("그라인더", grinder)) if not value]
+        if missing:
+            notice(f"{'·'.join(missing)}를 골라 주세요. 필터는 종류마다 물 빠지는 속도가 달라 기록에 함께 남겨요.", error=True)
             return
         flow.update(bean_id=bean_id, dose_g=float(dose), dripper=dripper, filter=filter_paper, grinder=grinder)
         go_to(2)
