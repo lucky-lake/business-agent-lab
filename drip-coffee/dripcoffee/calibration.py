@@ -8,6 +8,7 @@ import math
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import date
 
 from dripcoffee import DATA_DIR
 from dripcoffee.extraction_model import (DEFAULT_PARAMS, Prediction, Recipe, RecipeError, grind_from_d50, parse_pours,
@@ -15,6 +16,18 @@ from dripcoffee.extraction_model import (DEFAULT_PARAMS, Prediction, Recipe, Rec
 
 BREWS_PATH = DATA_DIR / "brews.csv"
 BEANS_PATH = DATA_DIR / "beans.csv"
+
+# 배전도: 앱에서 고르는 이름과, 원두 목록에 섞여 있는 다른 표기
+ROAST_LEVELS = ("라이트", "미디엄 라이트", "미디엄", "미디엄 다크", "다크")
+ROAST_ALIASES = {"강배전": "다크", "약배전": "라이트", "중배전": "미디엄", "중강배전": "미디엄 다크", "미디움": "미디엄",
+                 "미디움 다크": "미디엄 다크", "미디움 라이트": "미디엄 라이트"}
+BEAN_ROLES = ("학습", "검증", "시험", "여유", "일반")  # 앱에서 더한 원두는 '일반'
+# 로스팅 뒤 디게싱(원두에서 가스가 빠지는 과정): 배전도 → (이보다 이르면 '디게싱 중', 이날부터 '마시기 좋음',
+# 이날을 넘으면 '상미 기간 지남').
+# 사용자가 모은 로스터·바리스타 자료(블로그·영상, 조사 노트 5)에 맞춘 가정. '오래됨'은 자료에 숫자가 없어
+# '강배전일수록 상미 기간이 짧다'는 설명에 맞춰 정했다. 그 사이('이르면' 기준과 '좋음' 사이)는 '거의 끝남'.
+REST_DAYS = {"라이트": (3, 7, 45), "미디엄 라이트": (3, 7, 40), "미디엄": (3, 7, 35), "미디엄 다크": (3, 7, 30),
+             "다크": (2, 5, 25)}
 
 # 필터 종이. 종이마다 물 빠지는 속도가 다를 수 있어 잔마다 적는다 (10/19). 목록 밖의 필터도 적을 수 있다.
 FILTERS = ("하리오 화이트", "홀츠클로츠 무표백")
@@ -225,6 +238,107 @@ def click_hint(target_d50_um, grinder, bean_id, roast_date, brews):
     direction = "더 곱게" if target_d50_um < near.grind_d50_um else "더 굵게"
     return ClickHint(None, direction, "내 기록", f"가장 가까운 기록은 {near.grinder_clicks}클릭 "
                      f"{near.grind_d50_um:.0f} µm예요 ({near.brew_id}, {near.bean_id})", near, slope)
+
+
+def roast_name(roast_level):
+    """원두 목록의 배전도 표기를 앱의 다섯 이름 중 하나로. 모르는 표기는 그대로 돌려준다."""
+    name = str(roast_level).strip()
+    return ROAST_ALIASES.get(name, name)
+
+
+class BeanError(ValueError):
+    """원두를 추가할 수 없을 때, 사용자에게 보여줄 이유를 담는 예외."""
+
+
+@dataclass
+class RestStatus:
+    days: int  # 로스팅 뒤 며칠째
+    state: str  # '디게싱 중', '거의 끝남', '좋음', '상미 기간 지남', '날짜 확인'
+    label: str  # 화면에 굵게 보일 한 줄
+    message: str  # 처음 쓰는 사람도 알 수 있게 풀어 쓴 설명
+
+
+def _has_final(word):
+    last = word[-1]
+    return "가" <= last <= "힣" and (ord(last) - ord("가")) % 28 != 0
+
+
+def _topic(word):
+    """'미디엄은', '다크는'처럼 받침에 맞는 조사."""
+    return word + ("은" if _has_final(word) else "는")
+
+
+def with_object(word):
+    """'예가체프를', '원두을'이 아니라 받침에 맞는 목적격 조사를 붙인다."""
+    return word + ("을" if _has_final(word) else "를")
+
+
+DEGASSING_MEANING = "디게싱은 로스팅한 원두에서 가스(이산화탄소)가 빠져나가는 과정이에요."
+SHELF_MEANING = "상미 기간은 원두를 맛있게 마실 수 있는 기간이에요."
+
+
+def rest_status(roast_level, roast_date, today):
+    """로스팅 날짜로 디게싱(가스 빠짐)이 얼마나 됐는지, 상미 기간이 지났는지 알려 준다. 기준은 REST_DAYS."""
+    level = roast_name(roast_level)
+    early, ready, stale = REST_DAYS.get(level, REST_DAYS["미디엄"])
+    days = (today - date.fromisoformat(str(roast_date))).days
+    who = _topic(level)
+    if days < 0:
+        return RestStatus(days, "날짜 확인", "로스팅 날짜를 확인해 주세요", "로스팅 날짜가 오늘보다 뒤예요.")
+    if days < early:
+        extra = " 강배전은 이때 가스 맛이나 쓴맛이 강할 수 있어요." if level == "다크" else ""
+        return RestStatus(days, "디게싱 중", f"로스팅 {days}일째 · 디게싱 중이에요",
+                          f"{DEGASSING_MEANING} {who} 보통 {ready}일째부터 맛이 안정돼요. 지금 내리면 뜸(처음에 물을 조금 "
+                          f"부어 가루를 적시는 단계)에서 거품이 많이 올라오고, 물이 빠지는 속도와 맛이 평소와 다를 수 있어요.{extra}")
+    if days < ready:
+        extra = " 라이트는 10일 넘게 걸리기도 해요." if level == "라이트" else ""
+        return RestStatus(days, "거의 끝남", f"로스팅 {days}일째 · 디게싱이 거의 끝나 가요",
+                          f"{DEGASSING_MEANING} 아직 가스가 조금 남았을 수 있어요. {who} 보통 {ready}일째부터 맛이 "
+                          f"안정돼요.{extra}")
+    if days <= stale:
+        return RestStatus(days, "좋음", f"로스팅 {days}일째 · 마시기 좋은 때예요",
+                          "가스가 충분히 빠져 맛이 안정된 때예요.")
+    return RestStatus(days, "상미 기간 지남", f"로스팅 {days}일째 · 상미 기간이 지났어요",
+                      f"{SHELF_MEANING} {who} 보통 {stale}일쯤 지나면 향이 약해져요. 마셔도 괜찮지만 향이 덜할 수 있어요.")
+
+
+def append_bean(record, path=BEANS_PATH, today=None):
+    """새 원두를 확인한 뒤 원두 목록 끝에 더하고 원두 번호를 돌려준다. 번호는 B 다음 숫자를 하나씩 올린다.
+    문제가 있으면 BeanError를 내고 아무것도 쓰지 않는다."""
+    today = today or date.today()
+    with open(path, encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        header = reader.fieldnames
+        beans = list(reader)
+    row = {name: _text(record.get(name, "")) for name in header}
+    for name, label in (("name", "커피 이름"), ("roaster", "로스터리"), ("roast_date", "로스팅 날짜"),
+                        ("roast_level", "배전도")):
+        if not row[name]:
+            raise BeanError(f"{label}을(를) 적어 주세요.")
+    try:
+        roasted = date.fromisoformat(row["roast_date"])
+    except ValueError:
+        raise BeanError(f"로스팅 날짜는 2026-10-15처럼 적어 주세요: '{row['roast_date']}'") from None
+    if roasted > today:
+        raise BeanError("로스팅 날짜가 오늘보다 뒤예요.")
+    row["roast_level"] = roast_name(row["roast_level"])
+    if row["roast_level"] not in ROAST_LEVELS:
+        raise BeanError(f"배전도는 {', '.join(ROAST_LEVELS)} 중 하나로 골라 주세요.")
+    if row.get("amount_g") and (_number(row["amount_g"]) is None or _number(row["amount_g"]) < 0):
+        raise BeanError(f"양은 g 숫자로 적어 주세요: '{row['amount_g']}'")
+    same = (row["name"], row["roaster"], row["roast_date"])
+    if any((b["name"], b["roaster"], b["roast_date"]) == same for b in beans):
+        raise BeanError("이미 있는 원두예요 (같은 이름·로스터리·로스팅 날짜).")
+    numbers = [int(b["bean_id"][1:]) for b in beans if re.fullmatch(r"B\d+", b["bean_id"])]
+    row["bean_id"] = f"B{max(numbers, default=0) + 1:02d}"
+    row["role"] = row["role"] or "일반"
+    with open(path, "rb") as f:
+        ends_with_newline = f.read().endswith(b"\n")
+    with open(path, "a", encoding="utf-8", newline="") as f:
+        if not ends_with_newline:
+            f.write("\n")
+        csv.writer(f, lineterminator="\n").writerow([row[name] for name in header])
+    return row["bean_id"]
 
 
 def load_beans(path=BEANS_PATH):

@@ -7,7 +7,7 @@
 import math
 from dataclasses import dataclass, field
 
-from dripcoffee.calibration import grind_sizes
+from dripcoffee.calibration import grind_sizes, roast_name
 from dripcoffee.extraction_model import (DEFAULT_PARAMS, Pour, Recipe, RecipeError, grind_from_d50, parse_pours,
                                          predict)
 
@@ -78,8 +78,6 @@ WATER_RATIOS = range(8, 17)  # 전체 물 후보: 원두의 8–16배, 1배 간�
 # 배전도별 물 온도 범위(°C, 1 °C 간격). 라이트·미디엄·다크는 일반적으로 권하는 범위(가정),
 # 미디엄 라이트·미디엄 다크는 두 이웃 범위 사이로 정한 값(가정).
 ROAST_TEMPS = {"라이트": (92, 96), "미디엄 라이트": (90, 95), "미디엄": (88, 94), "미디엄 다크": (84, 90), "다크": (80, 88)}
-ROAST_NAMES = {"강배전": "다크", "약배전": "라이트", "중배전": "미디엄", "미디움": "미디엄", "미디움 다크": "미디엄 다크",
-               "미디움 라이트": "미디엄 라이트"}
 # 기록이 없는 원두의 출발점: 같은 배전도 묶음의 마지막 잔, 그것도 없으면 사용자의 평소 두 레시피(BREW_PROTOCOL).
 # 중강배전(미디엄 다크) 이상은 B01 방식 1:8, 2-4-2배 / 60초, 그 밖(라이트~미디엄)은 B02 방식 1:11, 2-3-3-3배 / 30초.
 BASE_RECIPES = {"중강배전 이상": (8.0, (4, 2), 60.0), "그 밖": (11.0, (3, 3, 3), 30.0)}
@@ -123,15 +121,12 @@ class Recommendation:
 
 def roast_range(roast_level):
     """배전도 이름(원두 목록의 표기)에 맞는 물 온도 범위. 모르는 이름이면 미디엄 범위를 쓴다."""
-    name = str(roast_level).strip()
-    name = ROAST_NAMES.get(name, name)
-    return ROAST_TEMPS.get(name, ROAST_TEMPS["미디엄"])
+    return ROAST_TEMPS.get(roast_name(roast_level), ROAST_TEMPS["미디엄"])
 
 
 def roast_group(roast_level):
     """레시피 출발점을 고르는 배전도 묶음: 미디엄 다크(중강배전)와 다크(강배전)는 '중강배전 이상', 나머지는 '그 밖'."""
-    name = str(roast_level).strip()
-    return "중강배전 이상" if ROAST_NAMES.get(name, name) in ("미디엄 다크", "다크") else "그 밖"
+    return "중강배전 이상" if roast_name(roast_level) in ("미디엄 다크", "다크") else "그 밖"
 
 
 def split_patterns(rest, largest=max(POUR_MULTIPLES)):

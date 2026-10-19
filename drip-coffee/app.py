@@ -26,6 +26,7 @@ from dripcoffee import recommend as rec
 PROFILE_DIR = LOCAL_DATA_DIR / "grind_profiles"
 CLICK_TABLE = DATA_DIR / "reference" / "maverick_click_table.csv"
 BREWS_PATH = cal.BREWS_PATH
+BEANS_PATH = cal.BEANS_PATH
 
 BRAND = "#3182F6"  # 포인트 컬러는 이것 하나만 쓴다
 TEXT = "#2A2A2A"
@@ -599,7 +600,7 @@ def log_form():
         notice(saved)
 
     brews = cal.load_brews(BREWS_PATH)
-    beans = cal.load_beans()
+    beans = cal.load_beans(BEANS_PATH)
     form = st.session_state.setdefault("log_form", 0)  # 저장할 때마다 올려서 입력칸을 새로 만든다
 
     def key(name):
@@ -926,7 +927,7 @@ def cached_recommendation(bean_id, dose_g, log_version):
     """추천은 0.1–2초 걸려서, 기록 파일이 바뀌지 않았으면(log_version) 지난 결과를 다시 쓴다."""
     brews = cal.load_brews(BREWS_PATH)
     target = rec.preference_target(rec.brew_points(brews))
-    return target, rec.recommend_recipe(target, cal.load_beans()[bean_id], brews, dose_g)
+    return target, rec.recommend_recipe(target, cal.load_beans(BEANS_PATH)[bean_id], brews, dose_g)
 
 
 def pour_rows(recommendation):
@@ -946,7 +947,7 @@ def recommend_tab():
         "분쇄는 그라인더 클릭이 아니라 대표 크기(µm)로 알려 줘요. 갈고 나서 사진으로 확인해요.</div>"
     )
     brews = cal.load_brews(BREWS_PATH)
-    beans = cal.load_beans()
+    beans = cal.load_beans(BEANS_PATH)
     bean_ids = list(beans)
     last_bean = brews[-1].bean_id if brews and brews[-1].bean_id in beans else bean_ids[0]
     c1, c2 = st.columns([2, 1])
@@ -1055,22 +1056,76 @@ def hint_text(hint, grinder):
     return f"{grinder}로 약 {hint.clicks}클릭에서 시작해 보세요. {hint.basis}"
 
 
+@st.dialog("새 원두 추가")
+def add_bean_dialog():
+    """원두 목록에 없는 원두를 더한다. 저장하면 1단계 원두 칸에서 바로 고른 상태가 된다."""
+    html('<div class="dc-caption">원두 봉투에 적힌 대로 적어 주세요. 로스팅 날짜를 알면 원두가 마시기 좋은 때인지 '
+         "알려 드려요.</div>")
+    name = st.text_input("커피 이름", key="nb-name", placeholder="예: 에티오피아 예가체프")
+    roaster = st.text_input("로스터리", key="nb-roaster", help="원두를 볶아서 판 가게 이름이에요.")
+    c1, c2 = st.columns(2)
+    roast_date = c1.date_input("로스팅 날짜", value=date.today(), max_value=date.today(), key="nb-date",
+                               help="원두를 볶은 날이에요. 봉투에 '로스팅일'이나 'Roasted on'으로 적혀 있어요.")
+    roast_level = c2.selectbox("배전도", cal.ROAST_LEVELS, index=2, key="nb-level",
+                               help="원두를 볶은 정도예요. 라이트(약배전)는 산뜻하고, 다크(강배전)는 쓴맛과 무게감이 강해요. "
+                                    "봉투에 약배전·중배전·강배전으로 적혀 있기도 해요.")
+    c1, c2 = st.columns(2)
+    origin = c1.text_input("산지 (선택)", key="nb-origin", placeholder="예: 에티오피아")
+    process = c2.text_input("가공 (선택)", placeholder="예: 워시드, 내추럴", key="nb-process",
+                            help="커피 열매에서 씨앗(생두)을 꺼내는 방식이에요. 봉투에 적혀 있으면 그대로 적어요.")
+    cup_notes = st.text_input("커피 노트 (선택)", placeholder="예: 견과류, 초콜릿", key="nb-notes",
+                              help="로스터리가 봉투에 적어 둔 맛과 향 표현이에요.")
+    amount = st.number_input("양 (g, 선택)", min_value=0.0, step=50.0, format="%.0f", value=None, key="nb-amount")
+    status = cal.rest_status(roast_level, roast_date.isoformat(), date.today())
+    html(f'<div class="dc-caption"><b>{escape(status.label)}</b><br>{escape(status.message)}</div>')
+    if st.button("추가하기", type="primary", width="stretch", key="nb-save"):
+        try:
+            bean_id = cal.append_bean({"name": name, "roaster": roaster, "roast_date": roast_date.isoformat(),
+                                       "roast_level": roast_level, "origin": origin, "process": process,
+                                       "cup_notes": cup_notes, "amount_g": amount}, BEANS_PATH)
+        except cal.BeanError as error:
+            notice(str(error), error=True)
+        else:
+            st.session_state["new_bean"] = bean_id  # 다음 실행에서 1단계 원두 칸에 넣는다 (칸을 그리기 전에만 바꿀 수 있어서)
+            st.rerun()
+
+
+def rest_notice(bean):
+    """로스팅 뒤 디게싱이 얼마나 됐는지. 좋을 때는 작은 글씨로, 이르거나 상미 기간이 지났으면 상자로 알린다."""
+    try:
+        status = cal.rest_status(bean["roast_level"], bean["roast_date"], date.today())
+    except ValueError:  # 로스팅 날짜가 없거나 형식이 다름
+        return
+    notes = f"<br>커피 노트: {escape(bean['cup_notes'])}" if bean.get("cup_notes") else ""
+    if status.state == "좋음":
+        html(f'<div class="dc-caption"><b>{escape(status.label)}</b> · {escape(status.message)}{notes}</div>')
+    else:
+        html(f'<div class="dc-notice"><b>{escape(status.label)}</b><br>{escape(status.message)}{notes}</div>')
+
+
 def flow_equipment(flow):
     """1단계: 원두와 장비."""
     html('<div class="dc-lead">원두와 장비를 알려 주면 오늘 한 잔을 처음부터 끝까지 안내해요.<br>'
          "레시피를 추천하고, 간 가루를 사진으로 확인해 맞추고, 내린 결과와 맛을 기록해 다음 추천에 반영해요.</div>")
     brews = cal.load_brews(BREWS_PATH)
-    beans = cal.load_beans()
+    beans = cal.load_beans(BEANS_PATH)
     bean_ids = list(beans)
     last = brews[-1] if brews else None
+    added = st.session_state.pop("new_bean", None)
+    if added in beans:
+        st.session_state["flow-bean"] = added
+        notice(f"{added} {cal.with_object(beans[added]['name'])} 원두 목록에 더했어요.")
     default_bean = flow.get("bean_id") or (last.bean_id if last and last.bean_id in beans else bean_ids[0])
     c1, c2 = st.columns([2, 1])
     bean_id = c1.selectbox("원두", bean_ids, index=bean_ids.index(default_bean),
                            format_func=lambda b: f"{b} {beans[b]['name']} ({beans[b]['roast_level']})", key="flow-bean")
     dose = c2.number_input("원두 무게 (g)", min_value=5.0, max_value=40.0, step=0.1, format="%.1f",
                            value=float(flow.get("dose_g", 20.0)), key="flow-dose")
+    if st.button("＋ 새 원두 추가", type="tertiary", key="flow-add-bean"):
+        add_bean_dialog()
     if beans[bean_id]["role"] == "시험":
         notice("시험용 원두예요. 모델을 동결한 뒤 최종 시험에서만 내려요 (MODEL.md 6절).")
+    rest_notice(beans[bean_id])
     c1, c2, c3 = st.columns(3)
     dripper = c1.text_input("드리퍼", flow.get("dripper") or (last.row.get("dripper", "V60") if last else "V60"),
                             key="flow-dripper")
@@ -1093,7 +1148,7 @@ def flow_equipment(flow):
 def flow_base_recipe(flow):
     """2단계: 기초 추천. 온도, 베이스 레시피, 목표 분쇄 크기와 클릭 힌트."""
     brews = cal.load_brews(BREWS_PATH)
-    beans = cal.load_beans()
+    beans = cal.load_beans(BEANS_PATH)
     bean = beans[flow["bean_id"]]
     try:
         with st.spinner("레시피 후보를 계산하는 중..."):
