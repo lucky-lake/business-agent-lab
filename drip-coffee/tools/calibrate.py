@@ -7,6 +7,7 @@
 - 분쇄 크기 지수 n(흐름 저항 ∝ 1/크기ⁿ): 0, 0.5, 1, 1.5, 2를 비교한다. 결과를 보기 전에 정한 규칙(10/19):
   교차 확인의 끊김 오차(크기 평균)가 이론값 n = 2보다 2초 넘게 줄어드는 n이 있을 때만 그중 가장 작은 쪽으로 바꾼다.
 - 필터별 차이와 온도 의존(Ea)을 키웠을 때의 영향은 숫자로만 보고한다(맞추지 않는다).
+- 분쇄 크기는 같은 봉투·같은 클릭으로 잰 잔들의 평균을 쓴다(calibration.grind_sizes의 pooled, 10/19).
 
 사용법 (drip-coffee 폴더에서):
     python tools/calibrate.py
@@ -48,13 +49,13 @@ def golden_min(f, low, high, steps=40):
 
 def usable_ids(brews):
     """보정에 쓰는 잔: 표시가 없고, 끊김 시각·음료 무게·분쇄 크기(빌린 값 포함)가 모두 있는 잔."""
-    sizes = cal.grind_sizes(brews)
+    sizes = cal.grind_sizes(brews, pooled=True)
     return [b.brew_id for b in brews
             if not b.flag and b.drawdown_end_s is not None and b.beverage_g is not None and b.brew_id in sizes]
 
 
 def comparisons(params, brews, ids):
-    return [c for c in cal.compare_with_log(brews, params) if c.brew.brew_id in ids]
+    return [c for c in cal.compare_with_log(brews, params, pooled=True) if c.brew.brew_id in ids]
 
 
 def squared(params, brews, ids, which):

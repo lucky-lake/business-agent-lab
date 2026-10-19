@@ -3,8 +3,11 @@
 잔마다 모델로 (추출수율, 가수 후 농도) 위치를 계산하고, 맛 점수로 가중한 '내 선호 중심'을
 골든컵 중심과 섞어 추천 목표를 정한다 (dripcoffee/recommend.py).
 """
+import shutil
+
 import pytest
 
+from dripcoffee import DATA_DIR
 from dripcoffee import calibration as cal
 from dripcoffee import recommend as rec
 
@@ -59,7 +62,28 @@ def test_cups_without_taste_scores_are_left_out():
 
 
 def test_borrowed_grind_size_comes_from_the_same_bag():
-    # 20261012-2(옛 봉투, 사진 없음)는 같은 봉투 20261012-1의 1255 µm를 빌린다.
-    # 같은 95클릭이어도 새 봉투 잔 20261018-1의 1044 µm는 섞지 않는다
-    size, borrowed = cal.grind_sizes(cal.load_brews())["20261012-2"]
-    assert borrowed and size == pytest.approx(1255)
+    # 20261012-2(옛 봉투, 사진 없음)는 같은 봉투 20261012-1의 크기를 빌린다.
+    # 같은 95클릭이어도 새 봉투 잔 20261018-1의 크기는 섞지 않는다
+    brews = cal.load_brews()
+    own = {b.brew_id: b.grind_d50_um for b in brews}
+    size, borrowed = cal.grind_sizes(brews)["20261012-2"]
+    assert borrowed and size == pytest.approx(own["20261012-1"])
+    assert own["20261012-1"] != own["20261018-1"]
+
+
+def test_pooled_grind_size_averages_the_same_bag_and_clicks(tmp_path):
+    # 보정에서는 사진이 있는 잔도 같은 봉투·같은 클릭으로 잰 잔들의 평균을 쓴다.
+    # B01 95클릭에 표시 없는 잔을 하나 더 넣으면 20261016-3과 평균을 낸다.
+    path = tmp_path / "brews.csv"
+    shutil.copy(DATA_DIR / "brews.csv", path)
+    cal.append_brew({"brew_id": "20261020-1", "date": "2026-10-20", "bean_id": "B01", "roast_date": "2026-09-28",
+                     "filter": "하리오 화이트", "grinder": "메버릭1", "grinder_clicks": 95, "grind_d50_um": 1200,
+                     "dose_g": 20, "water_temp_c": 82, "pours": "0:40;60:80;120:40"}, path)
+    brews = cal.load_brews(path)
+    own = {b.brew_id: b.grind_d50_um for b in brews}
+    size, borrowed = cal.grind_sizes(brews, pooled=True)["20261016-3"]
+    assert not borrowed and size == pytest.approx((own["20261016-3"] + 1200) / 2)
+    assert cal.grind_sizes(brews)["20261016-3"] == (own["20261016-3"], False)
+    # 표시가 있는 잔(20261009-1 연습, 촘촘히 편 사진)은 평균에 넣지 않고, 다른 클릭(105)은 섞지 않는다
+    assert cal.grind_sizes(brews, pooled=True)["20261009-1"][0] == pytest.approx(size)
+    assert cal.grind_sizes(brews, pooled=True)["20261016-1"] == (own["20261016-1"], False)

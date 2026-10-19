@@ -7,9 +7,10 @@ from tests.synthetic import render_sheet_window, simulate_photo
 from tools.verify_grind import load_click_table
 
 
-def make_measurement(diameters, clumps=0):
+def make_measurement(diameters, clumps=0, touching=0.0):
     d = np.asarray(diameters, dtype=float)
-    return ga.ParticleMeasurement(d, np.zeros((d.size, 2)), 25.0, ga.volume_median(d), 125.0, 0, 0, clumps)
+    return ga.ParticleMeasurement(d, np.zeros((d.size, 2)), 25.0, ga.volume_median(d), 125.0, 0, 0, clumps,
+                                  touching_volume_fraction=touching)
 
 
 def test_volume_percentiles_are_ordered_and_match_median():
@@ -97,6 +98,17 @@ def test_combine_warns_when_few_particles_or_many_clumps():
     profile = ga.combine_measurements([make_measurement([800] * 50, clumps=40)])
     assert any("흔들릴 수 있어요" in w for w in profile.warnings)
     assert any("더 얇게" in w for w in profile.warnings)
+
+
+def test_combine_warns_when_much_of_the_powder_was_touching():
+    # 붙은 입자가 많으면 다 나누지 못해 크게 나오므로(10/9 촘촘한 사진) 다시 펴서 찍으라고 안내한다.
+    # 사진별 비율은 부피로 가중해 합친다.
+    loose = ga.combine_measurements([make_measurement([800] * 400, touching=0.1)])
+    dense = ga.combine_measurements([make_measurement([800] * 400, touching=0.1),
+                                     make_measurement([800] * 400, touching=0.8)])
+    assert not any("붙어 있어서" in w for w in loose.warnings)
+    assert dense.touching_volume_fraction == pytest.approx(0.45)
+    assert any("붙어 있어서" in w for w in dense.warnings)
 
 
 def test_combine_without_particles_gives_clear_error():

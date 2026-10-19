@@ -5,6 +5,7 @@
 """
 import cv2
 import numpy as np
+import pytest
 
 from dripcoffee import grind_analysis as ga
 from tests.synthetic import COFFEE_BGR, DARK_CHAFF_BGR, PAPER_BGR, render_particles, scattered_particles
@@ -101,6 +102,12 @@ def test_touching_pairs_are_split_and_measured():
     assert m.excluded_clumps <= 0.2 * len(pairs)
     truth = volume_median_um(np.array(true_d) * 1000)
     assert abs(m.d50_volume_um - truth) / truth < 0.05
+    # 나눠 잰 짝이 차지하는 부피 비율을 함께 알려 준다. 나누지 못한 짝은 혼자 있는 입자로 세므로 짝의 몫보다 작을 수
+    # 있지만 절반 아래로 떨어지지는 않는다. 혼자 있는 입자만 있으면 0이다.
+    pair_share = sum(d**3 for *_, d in pairs + touching) / sum(d**3 for *_, d in singles + pairs + touching)
+    assert 0.5 * pair_share <= m.touching_volume_fraction <= pair_share + 0.05
+    alone, _ = render_particles(SIZE_PX, PX_PER_MM, singles)
+    assert ga.measure_particles(alone, UM_PER_PX).touching_volume_fraction == 0
 
 
 def test_single_particle_with_a_waist_is_not_split_or_left_out():

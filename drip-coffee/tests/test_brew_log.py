@@ -36,7 +36,7 @@ def test_existing_log_is_read_with_numbers_flags_and_scores():
     assert brews["20261009-1"].flag == "연습"
     assert brews["20261016-2"].flag == "막힘"
     b = brews["20261016-1"]
-    assert (b.grinder_clicks, b.grind_d50_um, b.drawdown_end_s, b.beverage_g) == (105, 1250.0, 158.0, 118.0)
+    assert (b.grinder_clicks, b.grind_d50_um, b.drawdown_end_s, b.beverage_g) == (105, 1683.0, 158.0, 118.0)
     # 만족도 점수 = Aroma, Flavor, Balance, Aftertaste의 평균 (산미·바디는 세기라서 뺀다)
     assert b.quality_score == pytest.approx((4.5 + 3.5 + 4 + 3.5) / 4)
     assert brews["20261012-2"].grind_d50_um is None  # 사진이 없는 잔은 빈칸

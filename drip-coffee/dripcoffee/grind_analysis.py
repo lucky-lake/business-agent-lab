@@ -228,6 +228,11 @@ MIN_SOLIDITY = 0.75
 # 넓이 ÷ 볼록 껍질 넓이가 이 값 이상이면 거의 볼록해서 붙은 짝일 수 없으므로 나누기를 건너뛴다 (계산을 줄이려고).
 SPLIT_BELOW_SOLIDITY = 0.95
 
+# 나눔선을 그은 물체(서로 붙어 있던 입자)에서 온 부피가 이 비율을 넘으면 크게 나올 수 있다고 안내한다.
+# 넓게 맞붙은 사슬은 잘록한 목이 없어 다 나누지 못하고 큰 입자로 재진다. 실제 사진에서 혼자 있던 입자만으로 잰 값과
+# 비교하면, 가루를 촘촘히 편 10/9 사진(붙은 부피 45~64%)은 8~27% 크게 나왔고, 10/16 뒤 사진(35% 이하)은 7% 이하였다.
+MAX_TOUCHING_FRACTION = 0.4
+
 # 배경(종이) 밝기를 추정할 때 지우는 가장 큰 입자 크기(mm). 이보다 큰 입자는 배경으로 섞일 수 있다.
 # 나눈 뒤에도 이보다 큰 조각은 크기를 믿을 수 없고 한 입자일 수도 없으므로(메버릭 가장 굵은 125클릭이 1.3 mm)
 # 덩어리로 보고 뺀다.
@@ -251,6 +256,7 @@ class ParticleMeasurement:
     # "chaff" 커피 입자만큼 어두운 은피)마다 펴진 이미지 좌표(픽셀)의 윤곽선 목록. "measured"는 diameters_um과 같은 순서다.
     # 나눈 입자는 조각마다 윤곽선이 하나씩이다.
     outlines: dict = field(default_factory=dict)
+    touching_volume_fraction: float = 0.0  # 잰 입자 부피 중 서로 붙어 있어 나눠 잰 입자의 비율
 
 
 def volume_median(diameters):
@@ -315,6 +321,7 @@ def measure_particles(image, um_per_px):
     n, labels, stats, _ = cv2.connectedComponentsWithStats(coffee.astype(np.uint8), connectivity=8)
     coverage = np.clip((1.0 - level) / (1.0 - coffee_level), 0.0, 1.0)
     diameters, centroids = [], []
+    touching_volume = 0.0  # 나눔선을 그은 물체에서 온 조각들의 부피 (지름³)
     outlines = {"measured": [], "clump": [], "border": [], "chaff": []}
     for i in range(1, n):
         x, y, bw, bh, _ = stats[i]
@@ -346,6 +353,8 @@ def measure_particles(image, um_per_px):
             ys, xs = np.nonzero(piece)
             weights = cov[piece]
             diameters.append(d_px * um_per_px)
+            if k > 1:
+                touching_volume += (d_px * um_per_px) ** 3
             centroids.append(((np.sum(xs * weights) / weights.sum() + x) / px_per_mm,
                               (np.sum(ys * weights) / weights.sum() + y) / px_per_mm))
             outlines["measured"].append(_outline(piece, x, y))
@@ -365,6 +374,7 @@ def measure_particles(image, um_per_px):
     return ParticleMeasurement(
         d, np.array(centroids), um_per_px, volume_median(d), MIN_DIAMETER_PX * um_per_px,
         excluded_chaff, excluded_border, excluded_clumps, outlines=outlines,
+        touching_volume_fraction=float(touching_volume / np.sum(d**3)),
     )
 
 
@@ -498,6 +508,7 @@ class GrindProfile:
     excluded_border: int
     excluded_clumps: int
     warnings: tuple = ()
+    touching_volume_fraction: float = 0.0  # 잰 입자 부피 중 서로 붙어 있어 나눠 잰 입자의 비율
 
 
 def volume_percentile(diameters, q):
@@ -572,6 +583,11 @@ def combine_measurements(measurements):
         warnings.append(
             f"여러 알이 엉켜서 뺀 덩어리가 {clumps}개로 많아요. 큰 입자가 덜 잡혔을 수 있으니 가루를 더 얇게 펴 주세요."
         )
+    volumes = [np.sum(m.diameters_um**3) for m in usable]
+    touching = sum(m.touching_volume_fraction * v for m, v in zip(usable, volumes)) / sum(volumes)
+    if touching > MAX_TOUCHING_FRACTION:
+        warnings.append(f"가루의 {touching:.0%}가 서로 붙어 있어서 대표 크기가 크게 나올 수 있어요. "
+                        "입자끼리 닿지 않게 더 듬성듬성 펴서 다시 찍어 주세요.")
     d10, d50, d90 = (volume_percentile(d, q) for q in (10, 50, 90))
     return GrindProfile(
         n_photos=len(usable),
@@ -593,6 +609,7 @@ def combine_measurements(measurements):
         excluded_border=sum(m.excluded_border for m in usable),
         excluded_clumps=clumps,
         warnings=tuple(warnings),
+        touching_volume_fraction=float(touching),
     )
 
 
@@ -630,6 +647,7 @@ def profile_record(profile, bean_id, grinder, grinder_clicks, brew_id="", photo_
         "excluded_clumps": profile.excluded_clumps,
         "excluded_border": profile.excluded_border,
         "excluded_chaff": profile.excluded_chaff,
+        "touching_volume_fraction": round(profile.touching_volume_fraction, 3),
         "warnings": list(profile.warnings),
         "diameters_um": [round(float(v), 1) for v in profile.diameters_um],
     }

@@ -17,23 +17,23 @@ def brews():
 
 
 def test_same_bag_record_comes_first(brews):
-    hint = cal.click_hint(1040, "메버릭1", "B02", "2026-10-15", brews)  # 새 봉투 95클릭 = 1044 µm
-    assert hint.clicks == 94 and hint.source == "내 기록" and hint.near.brew_id == "20261018-1"
-    assert cal.click_hint(1180, "메버릭1", "B01", "2026-09-28", brews).clicks == 95  # 95클릭 1180 µm 기록이 있다
+    hint = cal.click_hint(1150, "메버릭1", "B02", "2026-10-15", brews)  # 새 봉투 95클릭 = 1176 µm
+    assert hint.clicks == 93 and hint.source == "내 기록" and hint.near.row["roast_date"] == "2026-10-15"
+    assert cal.click_hint(1314, "메버릭1", "B01", "2026-09-28", brews).clicks == 95  # 95클릭 1314 µm 기록이 있다
 
 
 def test_other_bags_of_the_same_bean_are_not_used(brews):
-    # 옛 봉투 기록(95클릭 1255 µm)만 있는 크기를 새 봉투에 물으면 내 기록이 아니라 클릭표를 쓴다
-    hint = cal.click_hint(1255, "메버릭1", "B02", "2026-10-15", brews)
+    # 옛 봉투 기록(95클릭 1406 µm)만 있는 크기를 새 봉투에 물으면 내 기록이 아니라 클릭표를 쓴다
+    hint = cal.click_hint(1406, "메버릭1", "B02", "2026-10-15", brews)
     assert hint.source == "클릭표"
 
 
 def test_click_table_is_used_without_a_close_record(brews):
     hint = cal.click_hint(910, "메버릭1", "B07", "2026-10-14", brews)  # B07은 기록이 없다
     assert hint.source == "클릭표" and hint.clicks == 86  # 클릭표: 85클릭 900 µm, 90클릭 950 µm
-    far = cal.click_hint(1400, "메버릭1", "B01", "2026-09-28", brews)  # 같은 봉투 기록(최대 1250 µm)에서 60 µm 넘게 멀다
-    assert far.source == "클릭표" and far.clicks == 125
-    near = cal.click_hint(1300, "메버릭1", "B01", "2026-09-28", brews)  # 105클릭 1250 µm에서 50 µm
+    far = cal.click_hint(1250, "메버릭1", "B01", "2026-09-28", brews)  # 같은 봉투 기록(가장 작은 1314 µm)에서 60 µm 넘게 멀다
+    assert far.source == "클릭표" and far.clicks == 120
+    near = cal.click_hint(1720, "메버릭1", "B01", "2026-09-28", brews)  # 105클릭 1683 µm에서 37 µm
     assert near.source == "내 기록" and near.clicks > 105
 
 
@@ -56,8 +56,9 @@ def test_a_logged_cup_becomes_the_next_hint(tmp_path):
 
 
 def test_size_change_per_click_comes_from_one_bag_at_several_clicks(brews):
-    # B01 한 봉투를 85·95·105클릭으로 잰 기록. 인터넷 클릭표(1클릭당 약 10 µm)보다 작게 나온다
-    assert 3 < cal.click_hint(1180, "메버릭1", "B01", "2026-09-28", brews).um_per_click < 6
+    # B01 한 봉투를 85·95·105클릭으로 잰 기록. 인터넷 클릭표(1클릭당 약 10 µm)와 비슷하다.
+    # 예전 측정은 큰 입자를 덩어리로 빼서 1클릭당 4 µm쯤으로 작게 나왔다(10/19 고침)
+    assert 8 < cal.click_hint(1314, "메버릭1", "B01", "2026-09-28", brews).um_per_click < 16
 
 
 def test_grinder_without_table_or_records_gives_no_hint(brews):

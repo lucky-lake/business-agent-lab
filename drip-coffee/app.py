@@ -237,6 +237,7 @@ def show_photo_result(rectified, measurement):
             ("여러 알이 엉켜서 뺀 덩어리", f"{measurement.excluded_clumps}개"),
             ("칸 테두리에 걸려 뺀 입자", f"{measurement.excluded_border}개"),
             ("은피로 보고 뺀 조각", f"{measurement.excluded_chaff}개"),
+            ("다른 입자와 붙어 있어 나눠 잰 양", f"{measurement.touching_volume_fraction:.0%}"),
             ("사용한 칸", f"{rectified.zone.name}칸, 픽셀당 {rectified.um_per_px:.0f} µm"),
         ]))
         for warning in rectified.warnings + measurement.warnings:

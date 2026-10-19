@@ -106,27 +106,32 @@ def load_brews(path=BREWS_PATH):
         return [_brew_from_row(row) for row in csv.DictReader(f)]
 
 
-def grind_sizes(brews):
+def grind_sizes(brews, pooled=False):
     """잔마다 계산에 쓸 분쇄 대표 크기. {추출번호: (크기 µm, 빌렸는지)}.
 
     사진이 없는 잔은 같은 봉투(원두와 로스팅 날짜)·같은 그라인더·같은 클릭으로 간 다른 잔의 측정값 평균을
-    빌려 쓴다. 같은 원두라도 봉투가 바뀌면 같은 클릭에서 크기가 달라질 수 있어서다(10/18 B02: 1255 → 1044 µm).
+    빌려 쓴다. 같은 원두라도 봉투가 바뀌면 같은 클릭에서 크기가 달라질 수 있어서다(10/18 B02: 1406 → 1176 µm).
     표시가 있는 잔이어도 분쇄 측정은 맞으므로 빌려 줄 수 있다. 빌릴 값도 없는 잔은 넣지 않는다.
+
+    pooled이면 사진이 있는 잔도 같은 봉투·그라인더·클릭의 평균을 쓴다(보정용). 사진 한 장의 흔들림은 대부분
+    그 사진에 큰 입자가 몇 개 들어갔는지에서 오고, 가루를 다시 펴서 생기는 차이는 작았으므로(10/19, 사진 47장)
+    같은 가루로 볼 수 있는 잔들을 합치면 덜 흔들린다. 이때 표시가 있는 잔(연습 등)의 사진은 평균에 넣지 않는다.
+    10/9 연습 잔은 찍는 방법을 정하기 전이라 가루가 촘촘해, 붙은 입자 때문에 크게 나왔다.
     """
     def same_bag(b):
         return b.bean_id, b.row.get("roast_date", ""), b.grinder, b.grinder_clicks
 
     measured = defaultdict(list)
     for b in brews:
-        if b.grind_d50_um is not None:
+        if b.grind_d50_um is not None and not (pooled and b.flag):
             measured[same_bag(b)].append(b.grind_d50_um)
     sizes = {}
     for b in brews:
         same = measured.get(same_bag(b))
-        if b.grind_d50_um is not None:
+        if b.grind_d50_um is not None and (not pooled or not same):
             sizes[b.brew_id] = (b.grind_d50_um, False)
         elif same:
-            sizes[b.brew_id] = (sum(same) / len(same), True)
+            sizes[b.brew_id] = (sum(same) / len(same), b.grind_d50_um is None)
     return sizes
 
 
@@ -150,13 +155,13 @@ class LogComparison:
         return None if actual is None else self.prediction.beverage_g - actual
 
 
-def compare_with_log(brews, params=DEFAULT_PARAMS):
+def compare_with_log(brews, params=DEFAULT_PARAMS, pooled=False):
     """기록한 잔마다 같은 레시피·분쇄로 모델을 돌려 실제(물 빠짐 종료 시각, 음료 무게)와 나란히 둔다.
 
     보정(MODEL.md 5절) 전후의 오차를 재는 데 쓴다. 표시가 있는 잔도 넣고, 뺄지는 쓰는 쪽이 brew.flag로 정한다.
-    분쇄 크기를 알 수 없는 잔은 뺀다.
+    분쇄 크기를 알 수 없는 잔은 뺀다. pooled는 grind_sizes와 같다.
     """
-    sizes = grind_sizes(brews)
+    sizes = grind_sizes(brews, pooled)
     comparisons = []
     for b in brews:
         if b.brew_id not in sizes:
@@ -166,7 +171,7 @@ def compare_with_log(brews, params=DEFAULT_PARAMS):
     return comparisons
 
 
-CLICK_HINT_REACH_UM = 60  # 목표가 같은 봉투 기록과 이만큼(µm) 안이면 그 기록으로 알려 준다 (사진 측정의 흔들림 ±5% 정도)
+CLICK_HINT_REACH_UM = 60  # 목표가 같은 봉투 기록과 이만큼(µm) 안이면 그 기록으로 알려 준다 (사진 측정 흔들림 ±5~9%의 작은 쪽)
 # 그라인더 이름에 들어간 낱말 → 인터넷 기준 클릭표(비교용, 대략). 내 기록이 없을 때 시작점으로 쓴다.
 CLICK_TABLES = {"메버릭": DATA_DIR / "reference" / "maverick_click_table.csv"}
 
@@ -201,7 +206,7 @@ def table_clicks(target_d50_um, grinder):
 def click_hint(target_d50_um, grinder, bean_id, roast_date, brews):
     """목표 크기에 맞는 클릭의 시작점. 같은 봉투 기록 → 클릭표 → 다른 기록(방향만) 순서로 정한다. 근거가 없으면 None.
 
-    - 같은 봉투를 이 그라인더로 잰 기록이 있고 목표와 60 µm 안이면, 그 잔을 기준으로 1클릭당 크기 변화만큼 옮긴다. 같은 원두라도 봉투가 바뀌면 같은 클릭에서 크기가 달라서(95클릭: 1255 → 1044 µm)
+    - 같은 봉투를 이 그라인더로 잰 기록이 있고 목표와 60 µm 안이면, 그 잔을 기준으로 1클릭당 크기 변화만큼 옮긴다. 같은 원두라도 봉투가 바뀌면 같은 클릭에서 크기가 달라서(95클릭: 1406 → 1176 µm)
       다른 봉투 기록은 쓰지 않는다.
     - 같은 봉투 기록이 없거나 멀면 인터넷 클릭표로 알려 준다. 사진 측정과 기준이 달라 대략이지만, 갈고 나서
       사진으로 실제 크기를 재고 그에 맞춰 레시피를 바꾸므로(한 잔 내리기 3단계) 시작점으로는 충분하다.

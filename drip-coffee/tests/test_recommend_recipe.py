@@ -75,10 +75,11 @@ def test_recommended_temperature_stays_in_the_roast_range(brews, beans):
 
 
 def test_grind_stays_coarser_than_where_the_bean_clogged(brews, beans):
-    assert rec.clog_limit("B01", brews) == pytest.approx(1166)  # 20261016-2 (85클릭) 막힘
+    clogged = next(b for b in brews if b.brew_id == "20261016-2")  # 85클릭에서 막힘
+    assert rec.clog_limit("B01", brews) == pytest.approx(clogged.grind_d50_um)
     assert rec.clog_limit("B02", brews) is None
     r = rec.recommend_recipe(TARGET, beans["B01"], brews)
-    assert r.d50_um > 1166
+    assert r.d50_um > clogged.grind_d50_um
 
 
 def test_bean_without_records_gets_a_recipe_for_its_own_dose(brews, beans):

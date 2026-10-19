@@ -16,9 +16,9 @@ def test_every_cup_with_a_grind_size_is_compared(compared):
 
 
 def test_cup_without_a_photo_borrows_from_the_same_bag_and_clicks(compared):
-    # 20261012-2는 옛 봉투(9/28 로스팅). 같은 95클릭이어도 새 봉투(10/15) 잔 20261018-1의 1044 µm는 빌리지 않는다
+    # 20261012-2는 옛 봉투(9/28 로스팅). 같은 95클릭이어도 새 봉투(10/15) 잔 20261018-1의 크기는 빌리지 않는다
     borrowed = compared["20261012-2"]
-    assert borrowed.borrowed_grind and borrowed.grind_d50_um == pytest.approx(1255)
+    assert borrowed.borrowed_grind and borrowed.grind_d50_um == pytest.approx(compared["20261012-1"].grind_d50_um)
     assert not compared["20261012-1"].borrowed_grind
 
 
