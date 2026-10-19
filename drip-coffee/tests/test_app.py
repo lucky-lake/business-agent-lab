@@ -159,6 +159,9 @@ def test_grind_step_asks_for_a_photo_and_can_go_on_without_one(monkeypatch, my_f
     button(at, "flow-skip-3").click().run()
     assert not at.exception and has_text(at, "4 / 6 단계")
     assert at.session_state["flow"]["measured_d50_um"] is None
+    # 분쇄 칸은 '–' 대신 예측에 쓴 목표 크기와 눈대중을 보여 준다 (기록에는 잰 값이 아니라 남기지 않는다)
+    target = at.session_state["flow"]["target_d50_um"]
+    assert has_text(at, f"{target:.0f}") and has_text(at, "사진 없음 · ") and has_text(at, "정도")
 
 
 def test_brew_step_compares_the_result_with_the_prediction(monkeypatch, my_files):

@@ -1465,6 +1465,15 @@ def base_name(usual):
                           f"{rec.pattern_text(usual.pattern)}배 / {usual.interval_s:g}초 레시피")
 
 
+# 대표 크기를 눈으로 볼 때의 비유: (이 크기까지, 비유). 추출 안내서들이 흔히 쓰는 대략적인 비유라 눈대중일 뿐이다
+GRIND_FEELS = ((500, "고운 소금 정도"), (800, "백설탕 정도"), (1000, "굵은 설탕 정도"), (1300, "굵은 소금 정도"))
+
+
+def grind_feel(d50_um):
+    """대표 크기(µm)를 눈대중 비유로. 예: 1090 → '굵은 소금 정도'."""
+    return next((feel for upto, feel in GRIND_FEELS if d50_um <= upto), "통후추를 부순 정도")
+
+
 def hint_short(hint, grinder):
     """클릭 힌트를 요약 카드 한 줄로."""
     if hint is None:
@@ -1669,7 +1678,7 @@ def flow_base_recipe(flow):
          + ("물 양과 붓기를 조정했어요." if changed else "온도와 분쇄를 정했어요.") + "</div>")
     low, high = r.temp_range
     summary(
-        tile("grain", "목표 분쇄", f"{r.d50_um:.0f}", "µm", hint_short(hint, flow["grinder"])),
+        tile("grain", "목표 분쇄", f"{r.d50_um:.0f}", "µm", f"{hint_short(hint, flow['grinder'])} · {grind_feel(r.d50_um)}"),
         tile("device_thermostat", "물 온도", f"{recipe.water_temp_c:g}", "°C", f"{bean['roast_level']} {low}–{high} °C"),
         tile("water_drop", "물", f"{recipe.water_g:g}", "g", f"원두의 {r.water_ratio}배"),
         tile("water_full", "가수", f"{recipe.bypass_g:g}", "g", "드리퍼를 뺀 뒤 더해요"),
@@ -1816,11 +1825,14 @@ def flow_brew(flow):
          "뜸은 처음에 물을 조금 부어 가루를 고루 적시는 단계예요.</div>")
     measured = flow.get("measured_d50_um")
     clicks = f"{flow['clicks']}클릭" if flow.get("clicks") is not None else "클릭 기록 없음"
+    # 사진이 없으면 예측에 쓴 목표 크기를 보여 준다('–'로 두면 예상 시각이 무엇을 기준으로 했는지 안 보여서).
+    # 기록에는 잰 값이 아니므로 남기지 않는다
+    size = measured or flow["target_d50_um"]
     summary(
         tile("coffee", "원두", f"{recipe.dose_g:g}", "g", flow.get("bean_id", "")),
         tile("device_thermostat", "물 온도", f"{recipe.water_temp_c:g}", "°C", "주전자 물"),
-        tile("grain", "분쇄", f"{measured:.0f}" if measured else "–", "µm" if measured else "",
-             clicks + (" · 사진으로 잼" if measured else " · 사진 없음")),
+        tile("grain", "분쇄" if measured else "목표 분쇄", f"{size:.0f}", "µm",
+             f"{clicks} · " + ("사진으로 잼" if measured else f"사진 없음 · {grind_feel(size)}")),
         tile("water_drop", "물", f"{recipe.water_g:g}", "g", f"그다음 가수 {recipe.bypass_g:g} g"),
     )
     section("붓기 일정", "타이머 0:00부터 이 시각에 부어요. 저울이 아래 숫자가 될 때까지예요.")
