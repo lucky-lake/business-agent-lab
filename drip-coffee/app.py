@@ -194,6 +194,44 @@ STYLE = """
                   color: #3182F6; }
 @keyframes dc-grow { from { transform: scaleX(0); } to { transform: none; } }
 
+/* 맛 평가: 슬라이더를 '좋았던 정도'와 '세기' 두 묶음의 회색 판에 담고, 육각형은 위에 작게 둔다 */
+.st-key-taste-good, .st-key-taste-strength { background: #F9FAFB; border-radius: 20px; padding: 14px 18px 6px; }
+.dc-group { font-size: 15px; font-weight: 700; color: #2A2A2A; }
+.dc-group span { font-size: 13px; font-weight: 500; color: #8B95A1; margin-left: 6px; }
+.dc-hexagon.compact { display: flex; align-items: center; gap: 12px; padding: 8px 16px; text-align: left; }
+.dc-hexagon.compact svg { max-width: 190px; flex: 1 1 auto; }
+.dc-hexagon.compact .dc-hexagon-score { margin: 0; flex: none; }
+.dc-hexagon.compact .dc-hexagon-score b { display: block; font-size: 36px; margin: 0; }
+.dc-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px 6px 8px; border-radius: 100px;
+           background: #E8F3FF; color: #1B64DA; font-size: 14px; font-weight: 600; margin: 4px 0 8px; }
+.dc-chip .dc-icon { width: 24px; height: 24px; font-size: 15px; margin: 0; background: #FFFFFF; }
+/* 진하기: 세 가지를 아이콘이 있는 큰 선택 카드로 */
+.st-key-flow-strength [data-testid="stButtonGroup"] > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.st-key-flow-strength button { min-height: 76px; border-radius: 16px !important; border: 1px solid #E5E8EB !important;
+                               background: #FFFFFF; }
+.st-key-flow-strength button p { font-size: 15px; font-weight: 600; }
+.st-key-flow-strength button [data-testid="stIconMaterial"] { font-size: 24px; }
+.st-key-flow-strength button div { flex-direction: column; gap: 4px; }
+.st-key-flow-strength button[aria-checked="true"] { border: 2px solid #3182F6 !important; background: #E8F3FF;
+                                                   color: #1B64DA; }
+/* 6단계의 기록 완료 */
+.dc-done { text-align: center; }
+.dc-done .dc-icon { width: 64px; height: 64px; font-size: 34px; margin: 4px auto 14px; animation: dc-pop .45s var(--dc-spring) both; }
+.dc-done-title { font-size: 22px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; }
+.dc-done-sub { font-size: 14px; color: #8B95A1; margin-top: 4px; }
+@keyframes dc-pop { from { transform: scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
+/* 다음 잔은 이렇게 바뀌어요: 바뀐 값과 변화량 */
+.dc-change { background: #FFFFFF; border-radius: 24px; padding: 6px 20px; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04); }
+.dc-change-row { display: flex; align-items: center; gap: 10px; padding: 14px 0; border-bottom: 1px solid #F2F4F6; }
+.dc-change-row:last-child { border-bottom: none; }
+.dc-change-row .dc-icon { width: 32px; height: 32px; font-size: 18px; margin: 0; }
+.dc-change-name { flex: 1; min-width: 0; font-size: 15px; color: #4E5968; }
+.dc-change-name small { display: block; font-size: 12px; color: #8B95A1; margin-top: 2px; }
+.dc-change-from { font-size: 14px; color: #B0B8C1; }
+.dc-change-to { font-size: 17px; font-weight: 700; color: #2A2A2A; }
+.dc-pill { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 100px; background: #E8F3FF; color: #1B64DA; }
+.dc-pill.same { background: #F2F4F6; color: #8B95A1; }
+
 /* 위에서 내려오는 알림 (토스 디자인 시스템 Toast: 흰 알약 모양, 옅은 그림자, 15px 굵은 글자, 왼쪽 아이콘,
    위쪽 알림은 48px 위에서 내려오고 3초 뒤 사라짐). 알림 자리는 화면 흐름 밖에 고정해 내용을 밀지 않는다 */
 .st-key-dc-toasts { position: fixed; top: 0; left: 0; right: 0; height: 0; z-index: 1000100; pointer-events: none; }
@@ -204,6 +242,8 @@ STYLE = """
 .dc-toast-icon { flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center;
                  justify-content: center; color: #FFFFFF; font-size: 14px; font-weight: 800; background: #FFB800; }
 .dc-toast.error .dc-toast-icon { background: #F04452; }
+.dc-toast .dc-toast-icon.info { background: #3182F6; font-family: "Material Symbols Rounded"; font-weight: 400;
+                                font-size: 15px; font-variation-settings: "FILL" 1; }
 @keyframes dc-toast {
   0% { opacity: 0; transform: translate(-50%, -48px); animation-timing-function: var(--dc-spring); }
   9% { opacity: 1; transform: translate(-50%, 0); }
@@ -234,12 +274,15 @@ def notice(text, error=False):
 TOASTS = None  # 위에서 내려오는 알림 자리. 페이지를 그리기 전에 만든다 (화면 흐름 밖에 고정)
 
 
-def toast(text, error=False):
+def toast(text, error=False, icon=None):
     """토스 디자인 시스템의 Toast처럼 화면 위에서 내려왔다가 3초 뒤 사라지는 알림.
     잘못 적은 값, 읽지 못한 사진, 저장 실패처럼 잠깐 알리면 되는 것에 쓴다. 노란 '!'는 고쳐 달라는 뜻, 빨간 '!'는 실패.
+    icon(Material Symbols 이름)을 주면 파란 아이콘의 안내 알림이 된다(예: 맛보기 전 가수 안내).
     화면에 계속 남아야 하는 상태(추천을 찾지 못함 등)는 notice로 보여 준다."""
-    markup = (f'<div class="dc-toast{" error" if error else ""}" role="alert" aria-live="assertive">'
-              f'<span class="dc-toast-icon" aria-hidden="true">!</span>{escape(text)}</div>')
+    mark = (f'<span class="dc-toast-icon info" aria-hidden="true">{icon}</span>' if icon
+            else '<span class="dc-toast-icon" aria-hidden="true">!</span>')
+    markup = (f'<div class="dc-toast{" error" if error else ""}" role="{"status" if icon else "alert"}" '
+              f'aria-live="{"polite" if icon else "assertive"}">{mark}{escape(text)}</div>')
     if TOASTS is None:  # 페이지 밖(테스트 등)에서 부르면 그 자리에 그린다
         html(markup)
         return
@@ -567,17 +610,24 @@ def mark_touched(flag):
     st.session_state[flag] = True
 
 
-def taste_inputs(key):
+# 한 잔 내리기 5단계에서 슬라이더 이름 앞에 붙이는 아이콘 (Material Symbols)
+TASTE_ICONS = {"aroma": "air", "flavor": "restaurant", "acidity": "bolt", "body": "fitness_center",
+               "balance": "balance", "aftertaste": "hourglass_bottom"}
+
+
+def taste_inputs(key, names=None, short=False):
     """맛 6항목 슬라이더. 맨 왼쪽(산미·바디 0점, 나머지 1점)에서 시작하지만, 한 번 움직이기 전까지는 '–'(안 매김)로
     보이고 점수로 치지 않는다. 그래서 매기지 않은 항목이 맨 왼쪽 점수로 저장되는 일이 없다.
-    일부만 매기면 저장할 때 기록 함수가 거절한다."""
+    일부만 매기면 저장할 때 기록 함수가 거절한다. names로 일부만 그릴 수 있고, short면 이름 앞에 아이콘만 붙인다."""
     scores = {}
     for name, label, low in cal.TASTE_ITEMS:  # 기록지와 같은 순서
+        if names is not None and name not in names:
+            continue
         flag = key(f"{name}-touched")  # 움직이면 콜백이 켠다. 저장하면 key가 바뀌어 다시 꺼진 상태로 시작한다
         rated = st.session_state.get(flag, False)
         options = [low + 0.5 * j for j in range(int((cal.TASTE_MAX - low) * 2) + 1)]
         value = st.select_slider(
-            f"{label} · {TASTE_GUIDE[name][0]}", options, value=low,
+            f":material/{TASTE_ICONS[name]}: {label}" if short else f"{label} · {TASTE_GUIDE[name][0]}", options, value=low,
             format_func=lambda v, rated=rated, low=low: UNRATED if not rated and v == low else f"{v:g}",
             key=key(name), on_change=mark_touched, args=(flag,),
         )
@@ -585,7 +635,7 @@ def taste_inputs(key):
     return scores
 
 
-def taste_hexagon(scores):
+def taste_hexagon(scores, compact=False):
     """맛 점수 육각형(SVG). 기록지 순서로 맨 위 Aroma부터 시계 방향으로 돈다.
 
     매긴 항목은 점으로 찍고, 6항목을 다 매기면 면을 칠한다. 산미·바디는 좋고 나쁨이 아니라 세기라서
@@ -631,6 +681,8 @@ def taste_hexagon(scores):
     score = f"{sum(quality) / len(quality):.2f}" if all(v is not None for v in quality) else UNRATED
     svg = (f'<svg viewBox="0 0 {width} {height}" xmlns="http://www.w3.org/2000/svg" '
            f'font-family="{FONT}" role="img" aria-label="맛 점수 육각형">{"".join(parts)}</svg>')
+    if compact:  # 한 잔 내리기 5단계: 육각형 옆에 만족도만 크게
+        return (f'<div class="dc-hexagon compact">{svg}<div class="dc-hexagon-score">만족도<b>{score}</b></div></div>')
     return (f'<div class="dc-hexagon">{svg}<div class="dc-hexagon-score">만족도<b>{score}</b></div>'
             '<div class="dc-caption">Aroma, Flavor, Balance, Aftertaste의 평균이에요. '
             "산미·바디는 세기라서 클수록 좋은 게 아니에요.</div></div>")
@@ -1229,8 +1281,9 @@ BASE_NAMES = {((4, 2), 60.0): "484 레시피 (중강배전 이상)", ((3, 3, 3),
 
 
 def flow_header(step):
-    html(f'<div class="dc-eyebrow">{step} / {len(FLOW_STEPS)} 단계</div>'
-         f'<div class="dc-title" style="font-size:26px">{escape(FLOW_STEPS[step - 1])}</div>')
+    """단계 머리: 몇 단계인지, 이름, 진행 막대. 마무리는 이름 대신 '기록했어요' 표시를 크게 두어 이름을 뺀다."""
+    title = "" if step == len(FLOW_STEPS) else f'<div class="dc-title" style="font-size:26px">{escape(FLOW_STEPS[step - 1])}</div>'
+    html(f'<div class="dc-eyebrow">{step} / {len(FLOW_STEPS)} 단계</div>{title}')
     st.progress(step / len(FLOW_STEPS))
 
 
@@ -1684,21 +1737,45 @@ def flow_record(flow, taste, strength, memo):
     }
 
 
+STRENGTH_ICONS = {"연했어요": "water_drop", "딱 좋았어요": "check_circle", "진했어요": "coffee"}
+
+
 def flow_taste(flow):
-    """5단계: 맛 평가. 가수하고 바로 맛본 점수와 진하기를 받아 이 잔을 기록에 저장한다."""
+    """5단계: 맛 평가. 가수하고 바로 맛본 점수와 진하기를 받아 이 잔을 기록에 저장한다.
+    가수 안내는 들어올 때 한 번 위에서 내려왔다 사라지는 알림으로 띄우고(누를 필요 없게), 화면에는 작은 표시만 둔다.
+    만족도 육각형을 위에 두고
+    슬라이더는 '좋았던 정도'와 '세기' 두 묶음으로 나눈다. 진하기는 큰 선택 카드, 메모는 접어 둔다."""
     recipe = flow["recipe"]
-    html(f'<div class="dc-lead">드리퍼를 뺐으면 물 <b>{recipe.bypass_g:g} g</b>을 더하고(가수) 가볍게 저은 뒤 '
-         "<b>바로</b> 맛봐 주세요.<br>가수는 진하기를 맞추려고 물을 더하는 거예요. 식으면서 맛이 달라지니까, "
-         "매번 가수하고 바로 맛봐야 잔끼리 비교할 수 있어요.</div>")
+    if not flow.get("taste_intro_shown"):
+        flow["taste_intro_shown"] = True
+        toast(f"물 {recipe.bypass_g:g} g 넣고 바로 맛봐요. 식기 전에 매겨야 잔끼리 비교돼요.", icon="water_full")
+    html(f'<div class="dc-chip"><span class="dc-icon" aria-hidden="true">water_full</span>'
+         f"가수 {recipe.bypass_g:g} g · 바로 맛보기</div>")
 
     def key(name):
         return f"flow-taste-{name}"
 
-    taste = taste_section(key)
-    section("진하기", "다음 잔의 가수 물을 맞추는 데 써요. 연했다면 다음엔 물을 덜, 진했다면 더 타요.")
+    guide = "\n".join(f"- **{label}** ({TASTE_GUIDE[name][0]}): {TASTE_GUIDE[name][1]}"
+                       for name, label, _ in cal.TASTE_ITEMS)
+    st.container(key="taste-title").subheader("맛", help=guide, anchor=False)
+    html('<div class="dc-caption">0.5점 단위, 3점이 보통이에요. 움직이기 전에는 \'–\'(안 매김)로 보여요.</div>')
+    hexagon = st.empty()  # 슬라이더를 다 그린 뒤 점수로 채운다
+    with st.container(key="taste-good"):
+        html('<div class="dc-group">좋았던 정도<span>1~5점</span></div>')
+        taste = taste_inputs(key, cal.QUALITY_ITEMS, short=True)
+    with st.container(key="taste-strength"):
+        html('<div class="dc-group">세기<span>0~5점 · 클수록 좋은 게 아니에요</span></div>')
+        taste.update(taste_inputs(key, ("acidity", "body"), short=True))
+    taste = {name: taste[name] for name, _, _ in cal.TASTE_ITEMS}  # 기록지 순서로
+    hexagon.markdown(taste_hexagon(taste, compact=True), unsafe_allow_html=True)
+
+    section("진하기는 어땠나요?", "다음 잔의 가수 물을 맞추는 데 써요.")
     labels = list(STRENGTH_CHOICES.values())
-    picked = st.segmented_control("진하기는 어땠나요?", labels, key="flow-strength", label_visibility="collapsed")
-    memo = st.text_area("메모 (선택)", key="flow-memo", placeholder="나만 보는 기록이에요. 예: 식으면서 단맛이 올라옴")
+    picked = st.segmented_control("진하기는 어땠나요?", labels, key="flow-strength", label_visibility="collapsed",
+                                  format_func=lambda label: f":material/{STRENGTH_ICONS[label]}: {label}")
+    with st.expander("메모 남기기 (선택)", icon=":material/edit:"):
+        memo = st.text_area("메모", key="flow-memo", label_visibility="collapsed",
+                            placeholder="나만 보는 기록이에요. 예: 식으면서 단맛이 올라옴")
 
     rated = all(v is not None for v in taste.values())
     hint = "맛 6항목을 모두 매기면 기록할 수 있어요" if not rated else "진하기를 고르면 기록할 수 있어요"
@@ -1719,6 +1796,32 @@ def flow_taste(flow):
         go_to(6)
 
 
+def vs_short(diff, unit, more, less):
+    """예측과 실제의 차이를 짧게. diff는 실제 − 예측."""
+    if abs(diff) < (3 if unit == "초" else 1):
+        return "예측과 거의 같아요"
+    return f"예측보다 {abs(diff):.0f}{unit} {more if diff > 0 else less}"
+
+
+def change_row(icon, name, before, after, unit, why):
+    """다음 잔에서 바뀌는 값 한 줄: 아이콘, 이름과 바뀐 이유, 전 → 후, 변화량."""
+    delta = after - before
+    pill = (f'<span class="dc-pill">{delta:+.0f} {escape(unit)}</span>' if abs(delta) >= 1
+            else '<span class="dc-pill same">그대로</span>')
+    return (f'<div class="dc-change-row"><span class="dc-icon" aria-hidden="true">{icon}</span>'
+            f'<span class="dc-change-name">{escape(name)}<small>{escape(why)}</small></span>'
+            f'<span class="dc-change-from">{before:.0f} →</span>'
+            f'<span class="dc-change-to">{after:.0f} {escape(unit)}</span>{pill}</div>')
+
+
+def bypass_reason(strength, delta):
+    """가수가 바뀐 이유를 사용자가 고른 진하기 말로. 진하기 답과 바뀐 방향이 맞을 때만 그 답을 이유로 든다
+    (목표 농도는 진하기 답으로 배운다, MODEL.md 9.1)."""
+    answer = STRENGTH_CHOICES.get(strength)
+    consistent = {"진함": delta >= 1, "연함": delta <= -1, "좋음": abs(delta) < 1}.get(strength, False)
+    return f"'{answer}'라고 답해서" if consistent else "맛 점수와 진하기를 함께 반영해서"
+
+
 def flow_finish(flow):
     """6단계: 마무리. 이번 잔이 내 선호 영역의 어디에 있고, 다음 추천이 어떻게 바뀌었는지 보여 준다."""
     brews = cal.load_brews(BREWS_PATH)
@@ -1730,38 +1833,43 @@ def flow_finish(flow):
         return
     points = rec.brew_points(brews)
     after = rec.preference_target(points)
-    html(f'<div class="dc-lead"><b>{escape(saved.brew_id)}</b> 잔을 기록했어요. 이번 잔이 다음 추천에 반영됐어요.</div>')
-    score = saved.quality_score
-    html(
-        '<div class="dc-cards three">'
-        + card("이번 잔 만족도", f"{score:.2f}", "점", "Aroma, Flavor, Balance, Aftertaste의 평균이에요.", hero=True)
-        + card("진하기", STRENGTH_CHOICES.get(saved.strength, "–"), "", "다음 잔의 진하기를 맞추는 데 써요.")
-        + card("물줄기 끊김", clock(saved.drawdown_end_s), "", f"예측은 {clock(flow['prediction'].drawdown_end_s)}였어요.")
-        + card("음료 (가수 전)", f"{saved.beverage_g:g}", "g", f"예측은 {flow['prediction'].beverage_g:.0f} g이었어요.")
-        + "</div>"
+    prediction = flow["prediction"]
+    html(f'<div class="dc-done"><div class="dc-icon" aria-hidden="true">check</div>'
+         f'<div class="dc-done-title">기록했어요</div><div class="dc-done-sub">{escape(saved.brew_id)} · '
+         f"{escape(saved.bean_id)} {escape(saved.row.get('bean_name', ''))}</div></div>")
+    summary(
+        tile("star", "만족도", f"{saved.quality_score:.2f}", "점", "맛 4항목 평균 (산미·Body 빼고)"),
+        tile("coffee", "진하기", STRENGTH_CHOICES.get(saved.strength, "–"), "", "다음 잔 가수에 반영"),
+        tile("timer", "물줄기 끊김", clock(saved.drawdown_end_s), "", vs_short(saved.drawdown_end_s - prediction.drawdown_end_s,
+                                                                          "초", "늦어요", "빨라요")),
+        tile("local_cafe", "음료", f"{saved.beverage_g:g}", "g", vs_short(saved.beverage_g - prediction.beverage_g,
+                                                                       " g", "많아요", "적어요")),
     )
+    if saved.flag:
+        html('<div class="dc-caption">문제가 있었던 잔이라 다음 추천을 배울 때는 뺐어요.</div>')
+    if not saved.flag and not any(p.brew_id == saved.brew_id for p in points):
+        html('<div class="dc-caption">분쇄 크기를 몰라서 이번 잔은 다음 추천을 배울 때 쓰지 못했어요. '
+             "다음에는 3단계에서 가루 사진을 찍어 주세요.</div>")
 
-    section("다음 추천은 이렇게 바뀌어요", "얼마나 우러나게(추출수율)는 맛 점수로, 얼마나 진하게(농도)는 진하기로 배워요.")
-    ey0, tds0 = flow["target_before"]
-    lines = [("목표 추출수율", f"{ey0:.1f}% → {after.ey_pct:.1f}%"), ("목표 농도 (가수 후)", f"{tds0:.2f}% → {after.tds_pct:.2f}%")]
     try:
         _, nxt = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime)
     except rec.NoRecipeError:
         nxt = None
     if nxt:
-        lines += [("같은 원두 다음 잔: 분쇄", f"{flow['d50_before']:.0f} → {nxt.d50_um:.0f} µm"),
-                  ("같은 원두 다음 잔: 가수", f"{flow['bypass_before']:g} → {nxt.recipe.bypass_g:g} g")]
-    html(rows(lines))
-    if saved.flag:
-        html('<div class="dc-caption">문제가 있었던 잔이라 다음 추천을 배울 때는 뺐어요.</div>')
-    elif not any(p.brew_id == saved.brew_id for p in points):
-        html('<div class="dc-caption">분쇄 크기를 몰라서 이번 잔은 다음 추천을 배울 때 쓰지 못했어요. '
-             "다음에는 3단계에서 가루 사진을 찍어 주세요.</div>")
-
-    if points:
-        section("내 선호 영역", "기록한 잔마다 모델로 계산한 위치예요. 진한 테두리가 이번 잔이에요.")
-        st.altair_chart(preference_chart(points, after, highlight=saved.brew_id), width="stretch")
-        html(PREFERENCE_LEGEND)
+        section("다음 잔은 이렇게 바뀌어요", f"{saved.bean_id}를 같은 양으로 다시 내릴 때예요.")
+        bypass_delta = nxt.recipe.bypass_g - flow["bypass_before"]
+        html('<div class="dc-change">'
+             + change_row("water_full", "가수", flow["bypass_before"], nxt.recipe.bypass_g, "g",
+                          bypass_reason(saved.strength, bypass_delta))
+             + change_row("grain", "분쇄", flow["d50_before"], nxt.d50_um, "µm",
+                          "맛 점수를 반영해 다시 맞춰서" if abs(nxt.d50_um - flow["d50_before"]) >= 1 else "바뀌지 않았어요")
+             + "</div>")
+    with st.expander("자세히 보기"):
+        ey0, tds0 = flow["target_before"]
+        html(rows([("목표 추출수율", f"{ey0:.1f}% → {after.ey_pct:.1f}%"),
+                   ("목표 농도 (가수 후)", f"{tds0:.2f}% → {after.tds_pct:.2f}%")]))
+        html('<div class="dc-caption">얼마나 우러나게(추출수율)는 맛 점수로, 얼마나 진하게(농도)는 진하기로 배워요. '
+             "기록한 잔 전체의 위치는 '내 기록 보기'의 내 선호 영역에서 볼 수 있어요.</div>")
 
     with FLOW_CTA:
         left, right = st.columns([1, 2])

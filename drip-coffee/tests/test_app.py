@@ -145,6 +145,8 @@ def test_taste_step_needs_all_scores_and_strength_then_saves_the_cup(monkeypatch
     at.number_input(key="flow-beverage").set_value(176.0).run()
     button(at, "flow-next-4").click().run()
     assert not at.exception and has_text(at, "5 / 6 단계") and has_text(at, "바로")
+    # 맛보기 안내는 누를 필요 없이 위에서 내려왔다 사라지는 알림으로 한 번 뜬다
+    assert any("dc-toast" in e.proto.body and "넣고 바로 맛봐요" in e.proto.body for e in at.get("html"))
     flow = dict(at.session_state["flow"])
     flow["measured_d50_um"] = 1150.0  # 사진으로 잰 것처럼 (AppTest는 사진 올리기를 흉내 내지 못한다)
     at.session_state["flow"] = flow
@@ -161,7 +163,9 @@ def test_taste_step_needs_all_scores_and_strength_then_saves_the_cup(monkeypatch
     assert saved.taste["aroma"] == 3.5 and saved.filter_paper == "홀츠클로츠 무표백" and saved.grind_d50_um == 1150
     assert "앱 예측(내리기 전)" in saved.memo and saved.row["followed_recommendation"].startswith("예 (한 잔 내리기")
     # 6단계: 이번 잔과 다음 추천의 변화를 보여 준다. '진했어요'라서 목표 농도가 내려가고 가수 물이 는다
-    assert has_text(at, "6 / 6 단계") and has_text(at, saved.brew_id) and has_text(at, "다음 추천은 이렇게 바뀌어요")
+    assert has_text(at, "6 / 6 단계") and has_text(at, "기록했어요") and has_text(at, saved.brew_id)
+    # 바뀐 이유를 내가 고른 말로 ('진했어요'라고 답해서. 따옴표는 HTML에서 &#x27;로 바뀐다)
+    assert has_text(at, "다음 잔은 이렇게 바뀌어요") and has_text(at, "진했어요&#x27;라고 답해서")
     from dripcoffee import recommend as rec
     after = rec.preference_target(rec.brew_points(cal.load_brews(my_files[0])))
     assert after.tds_pct < at.session_state["flow"]["target_before"][1]
