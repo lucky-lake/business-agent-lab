@@ -1,4 +1,5 @@
 """추천: 맛 기록에서 '내 선호 영역'을 찾고(MODEL.md 9.1), 그 목표에 맞는 레시피 전체를 고른다(9.2).
+갈고 나서 사진으로 잰 크기가 추천과 다르면 그 가루에 맞게 레시피를 다시 맞춘다(9.3).
 
 커피는 본질적으로 기호식품이라 좋은 한 잔의 기준이 사람마다 다르다. 그래서 업계 평균인 골든컵에서
 시작해, 맛 점수가 좋았던 잔의 위치(추출수율, 가수 후 농도) 쪽으로 목표를 옮겨 간다.
@@ -87,6 +88,9 @@ GRIND_RANGE_UM = (700.0, 1800.0)  # 핸드드립으로 보는 대표 크기 범�
 GOOD_DRAWDOWN_S = (120.0, 210.0)  # 고르기에서 먼저 보는 끊김 시각 (2:00–3:30)
 OUT_OF_WINDOW_LIMIT = 30  # 끊김이 범위 밖인 후보가 이만큼 쌓이면 더 찾지 않고 그중 가장 평소다운 것을 고른다
 GRIND_STEP_UM = 10  # 추천 크기는 10 µm 단위로 보여준다
+REFIT_INTERVAL_S = 15  # 잰 분쇄에 맞춰 붓기 간격을 바꿀 수 있는 폭 (±, 사용자와 정함 10/19)
+REFIT_STEP_S = 5  # 간격은 5초 단위로 바꾼다 (타이머를 보며 따라 하기 쉽게)
+REFIT_EY_TOLERANCE = 0.3  # 추출수율이 목표와 이만큼(%p) 안이면 맞았다고 본다 (간격 5초에 약 0.6%p라 그 절반)
 
 
 class NoRecipeError(ValueError):
@@ -117,6 +121,19 @@ class Recommendation:
     clog_limit_um: float | None  # 이보다 고운 분쇄는 뺐다 (같은 원두가 막혔던 가장 굵은 크기)
     checked: int  # 계산해 본 후보 수
     skipped: dict = field(default_factory=dict)  # 뺀 이유별 후보 수
+
+
+@dataclass
+class Refit:
+    """갈고 나서 사진으로 잰 크기에 맞춰 다시 맞춘 레시피 (한 잔 내리기 3단계)."""
+
+    recipe: Recipe  # 붓기 간격과 가수량만 바꾼 레시피
+    d50_um: float  # 사진으로 잰 대표 크기
+    interval_s: float
+    interval_change_s: float  # 추천보다 몇 초 바꿨는지 (+면 늘림)
+    prediction: object  # 다시 맞춘 레시피를 잰 크기로 계산한 결과
+    reached: bool  # 간격 ±15초 안에서 목표 추출수율에 닿았는지
+    ey_gap_pct: float  # 예측 추출수율 − 목표 (닿지 못했을 때 얼마나 모자라거나 넘치는지)
 
 
 def roast_range(roast_level):
@@ -269,3 +286,38 @@ def recommend_recipe(target, bean, brews, dose_g=20.0, params=DEFAULT_PARAMS):
     reasons = ", ".join(f"{k} {v}개" for k, v in skipped.items() if v)
     raise NoRecipeError(f"목표(추출수율 {target.ey_pct:.1f}%, 농도 {target.tds_pct:.2f}%)에 맞는 레시피를 찾지 못했어요. "
                         f"후보 {checked}개 중 {reasons}.")
+
+
+def refit_to_grind(recommendation, measured_d50_um, target, params=DEFAULT_PARAMS):
+    """갈고 나서 사진으로 잰 크기에 맞춰 붓기 간격과 가수량만 다시 정한다 (MODEL.md 9.3).
+
+    클릭 힌트는 시작점일 뿐이고 같은 클릭도 갈 때마다 크기가 조금씩 달라서, 실제 가루가 추천보다 굵거나 고울 수 있다.
+    이미 간 가루는 바꿀 수 없으므로 레시피 쪽에서 맞춘다.
+    - 붓기 간격을 추천 ±15초 안에서 5초 단위로 바꿔, 추출수율이 목표에 가장 가까운 간격을 고른다. 목표와 0.3%p 안인
+      간격이 여럿이면 가장 덜 바꾼 것을 고른다. 모델에서 간격 15초는 추출수율을 약 2%p 바꾸지만, 온도는 배전도
+      범위 안에서 0.5%p쯤만 바꿔서 간격을 쓴다(분쇄 100 µm ≈ 1.3%p라 약 ±120 µm까지 메운다).
+    - 물 양, 붓기 배수, 온도는 그대로 둔다. 이미 받은 계획에서 덜 바꾸기 위해서다.
+    - 가수량은 바뀐 레시피의 음료로 목표 농도를 다시 맞춘다. 가수 없이도 묽으면 0으로 둔다.
+    """
+    base = recommendation.recipe
+    grind = grind_from_d50(measured_d50_um)
+    options = []
+    for change in range(-REFIT_INTERVAL_S, REFIT_INTERVAL_S + 1, REFIT_STEP_S):
+        interval = recommendation.interval_s + change
+        if interval <= 0:
+            continue
+        recipe = Recipe(base.dose_g, base.water_temp_c, pattern_pours(base.dose_g, recommendation.pattern, interval), 0.0)
+        try:
+            options.append((change, recipe, predict(recipe, grind, params)))
+        except RecipeError:
+            continue
+    if not options:
+        raise NoRecipeError("잰 분쇄 크기로는 이 레시피를 계산할 수 없어요. 분쇄를 다시 확인해 주세요.")
+    close = [o for o in options if abs(o[2].ey_pct - target.ey_pct) <= REFIT_EY_TOLERANCE]
+    change, recipe, result = (min(close, key=lambda o: abs(o[0])) if close
+                              else min(options, key=lambda o: abs(o[2].ey_pct - target.ey_pct)))
+    bypass = max(round(result.dissolved_g / (target.tds_pct / 100) - result.beverage_g), 0)
+    recipe = Recipe(recipe.dose_g, recipe.water_temp_c, recipe.pours, float(bypass))
+    final = predict(recipe, grind, params)
+    return Refit(recipe, float(measured_d50_um), recommendation.interval_s + change, float(change), final,
+                 bool(close), final.ey_pct - target.ey_pct)

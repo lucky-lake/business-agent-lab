@@ -126,3 +126,31 @@ def test_base_recipes_are_used_when_a_roast_group_has_no_records():
     assert rec.roast_group("미디움 다크") == rec.roast_group("강배전") == "중강배전 이상"
     assert rec.roast_group("미디엄") == rec.roast_group("미디엄 라이트") == "그 밖"
 
+
+def test_refit_keeps_the_recipe_when_the_grind_came_out_as_recommended(brews, beans):
+    r = rec.recommend_recipe(TARGET, beans["B02"], brews)
+    fit = rec.refit_to_grind(r, r.d50_um, TARGET)
+    assert fit.reached and fit.interval_change_s == 0
+    assert fit.recipe.bypass_g == pytest.approx(r.recipe.bypass_g, abs=1)
+
+
+def test_refit_lengthens_the_interval_for_coarser_grind_and_shortens_it_for_finer(brews, beans):
+    # 사진으로 재 보니 추천보다 굵으면 덜 추출되므로 붓기 간격을 늘리고, 고우면 줄인다.
+    r = rec.recommend_recipe(TARGET, beans["B02"], brews)
+    coarse = rec.refit_to_grind(r, r.d50_um + 80, TARGET)
+    fine = rec.refit_to_grind(r, r.d50_um - 80, TARGET)
+    assert 0 < coarse.interval_change_s <= 15 and -15 <= fine.interval_change_s < 0
+    for fit in (coarse, fine):
+        assert fit.reached and fit.prediction.tds_cup_pct == pytest.approx(TARGET.tds_pct, abs=0.01)
+        as_is = predict(r.recipe, grind_from_d50(fit.d50_um))  # 같은 가루로 추천 레시피를 그대로 내렸다면
+        assert abs(fit.ey_gap_pct) < abs(as_is.ey_pct - TARGET.ey_pct)
+        # 물 양, 붓기 배수, 온도는 그대로다
+        assert fit.recipe.water_g == r.recipe.water_g and fit.recipe.water_temp_c == r.recipe.water_temp_c
+        assert [p.grams for p in fit.recipe.pours] == [p.grams for p in r.recipe.pours]
+
+
+def test_refit_reports_the_gap_when_the_grind_is_too_far_off(brews, beans):
+    r = rec.recommend_recipe(TARGET, beans["B02"], brews)
+    far = rec.refit_to_grind(r, r.d50_um + 300, TARGET)
+    assert not far.reached and far.interval_change_s == 15 and far.ey_gap_pct < -rec.REFIT_EY_TOLERANCE
+
