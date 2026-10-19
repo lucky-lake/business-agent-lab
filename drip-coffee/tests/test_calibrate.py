@@ -31,6 +31,23 @@ def test_fitting_lowers_the_squared_errors():
     assert cb.squared(fitted, brews, ids, "bev") <= cb.squared(start, brews, ids, "bev")
 
 
+def test_exponent_rule_keeps_literature_verdicts():
+    # n은 교차 확인 오차가 n = 2보다 2초 넘게 줄고, n = 2에서 통과하는 문헌 항목을 모두 계속 통과할 때만 바꾼다.
+    scores = {0.0: 6.0, 0.5: 10.0, 1.0: 13.0, 1.5: 18.0, 2.0: 24.0}
+    same = {n: {"①", "③ 시간"} for n in scores}
+    assert cb.pick_exponent(scores, same) == 0.0
+    loses_time = {**same, 0.0: {"①"}, 0.5: {"①"}}  # n이 작으면 '곱게 갈수록 늦게 빠짐'을 잃는다
+    assert cb.pick_exponent(scores, loses_time) == 1.0
+    assert cb.pick_exponent({**scores, 1.0: 23.0, 1.5: 22.5}, loses_time) == 2.0  # 2초 넘게 줄지 않으면 그대로
+
+
+def test_literature_verdicts_follow_the_parameters():
+    # 문헌 판정은 보정할 계수로 다시 낸다. n = 0이면 크기가 물 빠짐에 영향이 없어 ③ 방향을 잃는다.
+    base = cb.literature_passes(em.DEFAULT_PARAMS)
+    flat = cb.literature_passes(dataclasses.replace(em.DEFAULT_PARAMS, resistance_size_exponent=0.0))
+    assert "③ 곱게 갈수록 물 빠짐 늦어짐" in base - flat
+
+
 def test_grind_size_exponent_changes_how_much_size_matters():
     recipe = em.Recipe(20, 92, em.parse_pours("0:40;30:60;60:60;90:60"), 80)
     times = {}

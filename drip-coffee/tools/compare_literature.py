@@ -38,24 +38,24 @@ def effect_passes(predicted_delta, measured_delta, low=0.5, high=2.0):
     return low <= ratio <= high
 
 
-def fit_d50_to_drawdown(recipe, target_s, lo_um=300.0, hi_um=3000.0):
+def fit_d50_to_drawdown(recipe, target_s, lo_um=300.0, hi_um=3000.0, params=em.DEFAULT_PARAMS):
     """예측 물 빠짐 시각이 target_s와 같아지는 대표 크기를 찾는다 (굵을수록 빨리 빠지므로 하나로 정해진다)."""
     for _ in range(50):
         mid = math.sqrt(lo_um * hi_um)
-        if em.predict(recipe, em.grind_from_d50(mid)).drawdown_end_s > target_s:
+        if em.predict(recipe, em.grind_from_d50(mid), params).drawdown_end_s > target_s:
             lo_um = mid  # 너무 늦게 빠짐 → 더 굵게
         else:
             hi_um = mid
     return math.sqrt(lo_um * hi_um)
 
 
-def compare_caa(rows):
+def compare_caa(rows, params=em.DEFAULT_PARAMS):
     """① Coffee ad Astra V60: 물 빠짐을 실험과 맞춘 뒤 추출수율·농도·음료 무게를 비교한다."""
     results = []
     for row in (r for r in rows if r["dataset"] == "caa_v60"):
         recipe = em.Recipe(row["dose_g"], row["temp_c"], em.parse_pours(row["pours"]))
-        d50 = fit_d50_to_drawdown(recipe, row["drawdown_s"])
-        p = em.predict(recipe, em.grind_from_d50(d50))
+        d50 = fit_d50_to_drawdown(recipe, row["drawdown_s"], params=params)
+        p = em.predict(recipe, em.grind_from_d50(d50), params)
         results.append({
             "run": row["run"], "d50_um": d50, "drawdown_s": p.drawdown_end_s,
             "ey_pred": p.ey_pct, "ey_meas": row["ey_pct"],
@@ -68,12 +68,12 @@ def compare_caa(rows):
     return results
 
 
-def compare_batali(rows):
+def compare_batali(rows, params=em.DEFAULT_PARAMS):
     """② Batali 2020 배치 브루어: 추출 계산만으로 각 회차의 추출수율을 내고, 분쇄·시간 효과의 크기를 비교한다."""
     runs = {}
     for row in (r for r in rows if r["dataset"] == "batali_drip"):
         ey, tds = em.extraction_only(
-            em.grind_from_d50(row["grind_um"]), row["dose_g"], row["water_g"], row["temp_c"], row["contact_s"]
+            em.grind_from_d50(row["grind_um"]), row["dose_g"], row["water_g"], row["temp_c"], row["contact_s"], params
         )
         runs[row["run"]] = {"row": row, "ey_pred": ey, "tds_pred": tds}
     effects = []
@@ -89,12 +89,12 @@ def compare_batali(rows):
     return runs, effects
 
 
-def compare_varady(rows, d50_sweep_um=(700.0, 900.0, 1100.0, 1300.0)):
+def compare_varady(rows, d50_sweep_um=(700.0, 900.0, 1100.0, 1300.0), params=em.DEFAULT_PARAMS):
     """③ Váradý 2022 V60: 클릭에 µm가 없으므로, 곱게 갈수록 농도가 오르고 물 빠짐이 늦어지는 방향만 비교한다."""
     measured = sorted((r for r in rows if r["dataset"] == "varady_v60"), key=lambda r: float(r["run"]))
     first = measured[0]
     recipe = em.Recipe(first["dose_g"], first["temp_c"], em.parse_pours(first["pours"]))
-    model = [em.predict(recipe, em.grind_from_d50(d)) for d in d50_sweep_um]
+    model = [em.predict(recipe, em.grind_from_d50(d), params) for d in d50_sweep_um]
     fine, coarse = measured[0], measured[-1]  # 클릭이 작을수록 곱다
     return {
         "measured": [(r["run"], r["tds_pct"], r["drawdown_s"]) for r in measured],
@@ -102,6 +102,20 @@ def compare_varady(rows, d50_sweep_um=(700.0, 900.0, 1100.0, 1300.0)):
         "tds_ok": (fine["tds_pct"] > coarse["tds_pct"]) == (model[0].tds_pct > model[-1].tds_pct),
         "time_ok": (fine["drawdown_s"] > coarse["drawdown_s"]) == (model[0].drawdown_end_s > model[-1].drawdown_end_s),
     }
+
+
+def verdicts(params=em.DEFAULT_PARAMS, rows=None):
+    """판정 항목마다 통과했는지. {항목 이름: True/False}. 보정에서 계수를 바꿔도 판정이 유지되는지 볼 때 쓴다."""
+    rows = rows or load_rows()
+    out = {}
+    for r in compare_caa(rows, params):
+        out.update({f"① {r['run']}회 추출수율": r["ey_ok"], f"① {r['run']}회 농도": r["tds_ok"],
+                    f"① {r['run']}회 음료": r["bev_ok"]})
+    _, effects = compare_batali(rows, params)
+    out.update({f"② {e['effect']}": e["ok"] for e in effects})
+    v = compare_varady(rows, params=params)
+    out.update({"③ 곱게 갈수록 농도 상승": v["tds_ok"], "③ 곱게 갈수록 물 빠짐 늦어짐": v["time_ok"]})
+    return out
 
 
 def _mark(ok):

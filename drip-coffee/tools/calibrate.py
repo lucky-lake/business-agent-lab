@@ -6,6 +6,8 @@
 - 교차 확인: 한 잔씩 빼고 나머지로 맞춘 뒤 뺀 잔을 예측한다(기록이 적어서).
 - 분쇄 크기 지수 n(흐름 저항 ∝ 1/크기ⁿ): 0, 0.5, 1, 1.5, 2를 비교한다. 결과를 보기 전에 정한 규칙(10/19):
   교차 확인의 끊김 오차(크기 평균)가 이론값 n = 2보다 2초 넘게 줄어드는 n이 있을 때만 그중 가장 작은 쪽으로 바꾼다.
+  단, 그 n으로 맞춘 모델이 n = 2로 맞춘 모델이 통과하는 문헌 비교 항목(MODEL.md 6절)을 모두 계속 통과해야 한다.
+  처음 규칙에 이 조건을 빠뜨려, 문헌 비교를 깨는 n = 0이 뽑혔다(보정 2). 새 기록으로 다시 돌리기 전에 더했다.
 - 필터별 차이와 온도 의존(Ea)을 키웠을 때의 영향은 숫자로만 보고한다(맞추지 않는다).
 - 분쇄 크기는 같은 봉투·같은 클릭으로 잰 잔들의 평균을 쓴다(calibration.grind_sizes의 pooled, 10/19).
 
@@ -22,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from dripcoffee import OUT_DIR  # noqa: E402
 from dripcoffee import calibration as cal  # noqa: E402
 from dripcoffee import extraction_model as em  # noqa: E402
+from tools import compare_literature as cl  # noqa: E402
 
 EXPONENTS = (0.0, 0.5, 1.0, 1.5, 2.0)
 EXPONENT_RULE_S = 2.0  # 이보다 많이 줄어야 n = 2에서 바꾼다
@@ -94,14 +97,28 @@ def leave_one_out(params, brews, ids):
     return out
 
 
+def literature_passes(params):
+    """문헌 비교(MODEL.md 6절)에서 통과한 항목 이름들."""
+    return {name for name, ok in cl.verdicts(params).items() if ok}
+
+
+def pick_exponent(scores, passes):
+    """미리 정한 규칙대로 n을 고른다. scores는 {n: 교차 확인 끊김 크기 평균(초)}, passes는 {n: 통과한 문헌 항목}.
+    n = 2보다 EXPONENT_RULE_S초 넘게 줄고, n = 2에서 통과하는 문헌 항목을 모두 통과하는 n 중 가장 작은 오차의 n."""
+    better = [n for n in scores if scores[n] < scores[2.0] - EXPONENT_RULE_S and passes[2.0] <= passes[n]]
+    return min(better, key=scores.get) if better else 2.0
+
+
 def choose_exponent(params, brews, ids):
-    """n별 교차 확인 끊김 크기 평균. 미리 정한 규칙대로 n을 고른다. (고른 n, {n: 초})"""
-    scores = {}
+    """n마다 교차 확인 끊김 크기 평균과, 그 n으로 맞춘 모델이 통과한 문헌 항목을 구해 n을 고른다.
+    (고른 n, {n: 초}, {n: 통과 항목})"""
+    scores, passes = {}, {}
     for n in EXPONENTS:
-        loo = leave_one_out(dataclasses.replace(params, resistance_size_exponent=n), brews, ids)
+        p = dataclasses.replace(params, resistance_size_exponent=n)
+        loo = leave_one_out(p, brews, ids)
         scores[n] = sum(abs(e) for e, _ in loo.values()) / len(loo)
-    better = [n for n in EXPONENTS if scores[n] < scores[2.0] - EXPONENT_RULE_S]
-    return (min(better, key=scores.get) if better else 2.0), scores
+        passes[n] = literature_passes(fit(p, brews, ids))
+    return pick_exponent(scores, passes), scores, passes
 
 
 def ea_effect(params, ea_values=(17.3e3, 25e3, 35e3)):
@@ -128,11 +145,18 @@ def main():
                      f"음료 평균 {b:+.1f} g·크기 평균 {ba:.1f} g")
 
     report("보정 전", start)
-    n, scores = choose_exponent(start, brews, ids)
-    lines.append("분쇄 크기 지수 n별 교차 확인(끊김 크기 평균): "
-                 + ", ".join(f"n={k:g} {v:.1f}초" for k, v in scores.items()) + f" → n = {n:g}")
+    n, scores, passes = choose_exponent(start, brews, ids)
+    total = len(cl.verdicts(start))
+    lines.append("분쇄 크기 지수 n별 교차 확인(끊김 크기 평균)과 문헌 비교 통과: "
+                 + ", ".join(f"n={k:g} {v:.1f}초·{len(passes[k])}/{total}" for k, v in scores.items()) + f" → n = {n:g}")
+    for k in EXPONENTS:
+        lost = passes[2.0] - passes[k]
+        if lost:
+            lines.append(f"  n={k:g}에서 n = 2보다 잃는 문헌 항목: {', '.join(sorted(lost))}")
     fitted = fit(dataclasses.replace(start, resistance_size_exponent=n), brews, ids)
     report("보정 후", fitted)
+    failed = sorted(name for name, ok in cl.verdicts(fitted).items() if not ok)
+    lines.append(f"보정 후 문헌 비교: {total - len(failed)}/{total} 통과" + (f" (불통과: {', '.join(failed)})" if failed else ""))
 
     lines += ["", "잔별 (예측 − 실제): 보정 전 → 보정 후, 교차 확인(그 잔을 빼고 맞췄을 때)"]
     loo = leave_one_out(dataclasses.replace(start, resistance_size_exponent=n), brews, ids)
