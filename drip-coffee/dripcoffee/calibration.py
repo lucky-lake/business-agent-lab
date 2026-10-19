@@ -8,7 +8,7 @@ import math
 import re
 from pathlib import Path
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 from dripcoffee import DATA_DIR
@@ -212,8 +212,12 @@ def table_clicks(target_d50_um, grinder):
     return round(table[-1][1])
 
 
+CLOG_CLICK_STEP = 5  # 막혔던 클릭보다 굵게 알려 줄 때, 막히지 않은 더 굵은 기록이 없으면 이만큼 굵게 (클릭을 5 단위로 옮겨서)
+
+
 def click_hint(target_d50_um, grinder, bean_id, roast_date, brews):
     """목표 크기에 맞는 클릭의 시작점. 같은 봉투 기록 → 클릭표 → 다른 기록(방향만) 순서로 정한다. 근거가 없으면 None.
+    같은 원두가 이 그라인더로 막혔던 클릭보다 곱거나 같은 클릭은 알려 주지 않는다(avoid_clogged_clicks).
 
     - 같은 봉투를 이 그라인더로 잰 기록이 있고 목표와 60 µm 안이면, 그 잔을 기준으로 1클릭당 크기 변화만큼 옮긴다. 같은 원두라도 봉투가 바뀌면 같은 클릭에서 크기가 달라서(95클릭: 1406 → 1176 µm)
       다른 봉투 기록은 쓰지 않는다.
@@ -222,6 +226,32 @@ def click_hint(target_d50_um, grinder, bean_id, roast_date, brews):
     - 그 잔을 기록하면 클릭과 사진 크기가 함께 남아, 다음에 같은 봉투를 내릴 때는 내 기록으로 알려 준다.
     - 클릭표가 없는 그라인더는 가장 가까운 내 기록에서 방향만 알려 준다.
     """
+    return avoid_clogged_clicks(_size_hint(target_d50_um, grinder, bean_id, roast_date, brews), grinder, bean_id, brews)
+
+
+def avoid_clogged_clicks(hint, grinder, bean_id, brews):
+    """같은 원두가 이 그라인더로 막혔던 클릭보다 곱거나 같은 클릭을 알려 주려 하면, 막히지 않고 내린 더 굵은 클릭 중
+    가장 가까운 것으로(없으면 막힌 클릭보다 5클릭 굵게) 바꾼다.
+
+    추천은 막힌 잔의 크기(µm)보다 굵게만 고르지만(MODEL.md 9.2), 사진 측정이 같은 클릭에서도 ±5~9% 흔들려서
+    크기로는 막힌 잔보다 굵어도 클릭으로는 막힌 그 클릭이 나올 수 있다(B01: 1430 µm → 85클릭).
+    """
+    if hint is None or hint.clicks is None:
+        return hint
+    same = [b for b in brews if b.bean_id == bean_id and b.grinder == grinder and b.grinder_clicks is not None]
+    clogged = [b.grinder_clicks for b in same if b.flag == "막힘"]
+    if not clogged or hint.clicks > max(clogged):
+        return hint
+    limit = max(clogged)
+    fine = sorted(b.grinder_clicks for b in same if not b.flag and b.grinder_clicks > limit)
+    clicks = fine[0] if fine else limit + CLOG_CLICK_STEP
+    start = f"막히지 않고 내린 {clicks}클릭부터" if fine else f"그보다 {CLOG_CLICK_STEP}클릭 굵게"
+    return replace(hint, clicks=clicks,
+                   basis=f"{hint.basis.rstrip('.')}. 다만 같은 원두가 {limit}클릭에서 막힌 적이 있어서 {start} 시작해요.")
+
+
+def _size_hint(target_d50_um, grinder, bean_id, roast_date, brews):
+    """크기만 보고 정한 클릭 힌트 (click_hint의 설명 참고). 막힌 클릭은 아직 따지지 않는다."""
     measured = [b for b in brews if b.grinder == grinder and b.grind_d50_um is not None and b.grinder_clicks is not None]
     bags = defaultdict(list)
     for b in measured:

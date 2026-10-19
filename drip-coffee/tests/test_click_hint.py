@@ -61,5 +61,18 @@ def test_size_change_per_click_comes_from_one_bag_at_several_clicks(brews):
     assert 8 < cal.click_hint(1314, "메버릭1", "B01", "2026-09-28", brews).um_per_click < 16
 
 
+def test_hint_never_points_at_a_click_that_clogged(brews):
+    # B01은 85클릭에서 막혔다. 막힘 한계 바로 위 크기(1430 µm)는 내 기록으로는 85클릭(1429 µm)이지만,
+    # 같은 클릭이면 또 막힐 수 있어서 막히지 않고 내린 더 굵은 클릭(95)부터 알려 준다
+    hint = cal.click_hint(1430, "메버릭1", "B01", "2026-09-28", brews)
+    assert hint.clicks == 95 and "85클릭에서 막힌" in hint.basis
+    # 막히지 않은 더 굵은 기록이 없으면 막힌 클릭보다 5클릭 굵게 알려 준다
+    only_clogged = [b for b in brews if b.brew_id == "20261016-2"]
+    assert cal.click_hint(1430, "메버릭1", "B01", "2026-09-28", only_clogged).clicks == 90
+    # 막힌 적 없는 원두와, 막힌 클릭보다 이미 굵은 힌트는 그대로다
+    assert cal.click_hint(1150, "메버릭1", "B02", "2026-10-15", brews).clicks == 93
+    assert cal.click_hint(1314, "메버릭1", "B01", "2026-09-28", brews).clicks == 95
+
+
 def test_grinder_without_table_or_records_gives_no_hint(brews):
     assert cal.click_hint(1000, "코만단테", "B02", "2026-10-15", brews) is None
