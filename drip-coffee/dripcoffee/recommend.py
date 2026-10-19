@@ -1,13 +1,15 @@
-"""추천 목표: 맛 기록에서 '내 선호 영역'을 찾는다. 설계는 docs/MODEL.md 9.1.
+"""추천: 맛 기록에서 '내 선호 영역'을 찾고(MODEL.md 9.1), 그 목표에 맞는 레시피 전체를 고른다(9.2).
 
 커피는 본질적으로 기호식품이라 좋은 한 잔의 기준이 사람마다 다르다. 그래서 업계 평균인 골든컵에서
 시작해, 맛 점수가 좋았던 잔의 위치(추출수율, 가수 후 농도) 쪽으로 목표를 옮겨 간다.
 잔의 위치는 굴절계로 잰 값이 아니라 모델 추정값이다.
 """
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 
 from dripcoffee.calibration import grind_sizes
-from dripcoffee.extraction_model import DEFAULT_PARAMS, grind_from_d50, predict
+from dripcoffee.extraction_model import (DEFAULT_PARAMS, Pour, Recipe, RecipeError, grind_from_d50, parse_pours,
+                                         predict)
 
 GOLDEN_CUP_CENTER = (20.0, 1.25)  # 추출수율 %, 농도 % (골든컵 범위 18–22%, 1.15–1.35%의 가운데)
 GOLDEN_CUP_WEIGHT = 5  # 골든컵을 '좋았던 잔 5잔 분량'으로 친다 (가정)
@@ -66,3 +68,209 @@ def brew_points(brews, params=DEFAULT_PARAMS):
         prediction = predict(b.recipe(), grind_from_d50(sizes[b.brew_id][0]), params)
         points.append(BrewPoint(b.brew_id, b.bean_id, prediction.ey_pct, prediction.tds_cup_pct, score))
     return points
+
+
+# ---------------------------------------------------------------------------
+# 레시피 전체 추천 (MODEL.md 9.2)
+# ---------------------------------------------------------------------------
+
+WATER_RATIOS = range(8, 17)  # 전체 물 후보: 원두의 8–16배, 1배 간격 (가정)
+# 배전도별 물 온도 범위(°C, 1 °C 간격). 라이트·미디엄·다크는 일반적으로 권하는 범위(가정),
+# 미디엄 라이트·미디엄 다크는 두 이웃 범위 사이로 정한 값(가정).
+ROAST_TEMPS = {"라이트": (92, 96), "미디엄 라이트": (90, 95), "미디엄": (88, 94), "미디엄 다크": (84, 90), "다크": (80, 88)}
+ROAST_NAMES = {"강배전": "다크", "약배전": "라이트", "중배전": "미디엄", "미디움": "미디엄", "미디움 다크": "미디엄 다크",
+               "미디움 라이트": "미디엄 라이트"}
+# 기록이 없는 원두의 출발점: 같은 배전도 묶음의 마지막 잔, 그것도 없으면 사용자의 평소 두 레시피(BREW_PROTOCOL).
+# 중강배전(미디엄 다크) 이상은 B01 방식 1:8, 2-4-2배 / 60초, 그 밖(라이트~미디엄)은 B02 방식 1:11, 2-3-3-3배 / 30초.
+BASE_RECIPES = {"중강배전 이상": (8.0, (4, 2), 60.0), "그 밖": (11.0, (3, 3, 3), 30.0)}
+BLOOM_MULTIPLE = 2  # 뜸 물 = 원두의 2배, 0초에 붓는다
+POUR_MULTIPLES = (4, 3, 2)  # 뜸 뒤 한 번에 붓는 양 = 원두의 2·3·4배 중 하나
+GRIND_RANGE_UM = (700.0, 1800.0)  # 핸드드립으로 보는 대표 크기 범위
+GOOD_DRAWDOWN_S = (120.0, 210.0)  # 고르기에서 먼저 보는 끊김 시각 (2:00–3:30)
+OUT_OF_WINDOW_LIMIT = 30  # 끊김이 범위 밖인 후보가 이만큼 쌓이면 더 찾지 않고 그중 가장 평소다운 것을 고른다
+GRIND_STEP_UM = 10  # 추천 크기는 10 µm 단위로 보여준다
+
+
+class NoRecipeError(ValueError):
+    """조건을 만족하는 레시피가 없을 때, 사용자에게 보여줄 이유를 담는 예외."""
+
+
+@dataclass
+class Usual:
+    """'평소 레시피'. 후보가 이것과 덜 다를수록 먼저 고른다."""
+
+    water_ratio: float
+    temp_c: float
+    pattern: tuple  # 뜸 뒤 붓기마다 원두의 몇 배인지. 예: (3, 3, 3)
+    interval_s: float  # 붓기 간격
+    source: str  # 어디서 가져왔는지 (화면 설명용)
+
+
+@dataclass
+class Recommendation:
+    recipe: Recipe  # 원두 무게, 물 온도, 붓기 일정, 가수량
+    d50_um: float  # 추천 분쇄 대표 크기
+    prediction: object  # 추천 레시피를 모델로 계산한 결과 (끊김 시각, 음료, 수율, 농도)
+    water_ratio: int  # 전체 물 = 원두의 몇 배
+    pattern: tuple  # 뜸 뒤 붓기마다 원두의 몇 배인지
+    interval_s: float
+    usual: Usual
+    temp_range: tuple
+    clog_limit_um: float | None  # 이보다 고운 분쇄는 뺐다 (같은 원두가 막혔던 가장 굵은 크기)
+    checked: int  # 계산해 본 후보 수
+    skipped: dict = field(default_factory=dict)  # 뺀 이유별 후보 수
+
+
+def roast_range(roast_level):
+    """배전도 이름(원두 목록의 표기)에 맞는 물 온도 범위. 모르는 이름이면 미디엄 범위를 쓴다."""
+    name = str(roast_level).strip()
+    name = ROAST_NAMES.get(name, name)
+    return ROAST_TEMPS.get(name, ROAST_TEMPS["미디엄"])
+
+
+def roast_group(roast_level):
+    """레시피 출발점을 고르는 배전도 묶음: 미디엄 다크(중강배전)와 다크(강배전)는 '중강배전 이상', 나머지는 '그 밖'."""
+    name = str(roast_level).strip()
+    return "중강배전 이상" if ROAST_NAMES.get(name, name) in ("미디엄 다크", "다크") else "그 밖"
+
+
+def split_patterns(rest, largest=max(POUR_MULTIPLES)):
+    """뜸 뒤 남은 물(원두의 rest배)을 2·3·4배 붓기로 나누는 모든 방법. 큰 붓기를 먼저 붓는다.
+    예: 6 → (4, 2), (3, 3), (2, 2, 2)"""
+    if rest == 0:
+        return [()]
+    return [(m, *tail) for m in POUR_MULTIPLES if m <= min(rest, largest)
+            for tail in split_patterns(rest - m, m)]
+
+
+def pattern_pours(dose_g, pattern, interval_s):
+    """뜸(원두의 2배)을 0초에 붓고, 간격마다 원두의 pattern배씩 붓는다. 양은 1 g 단위."""
+    pours = [Pour(0.0, float(round(BLOOM_MULTIPLE * dose_g)))]
+    pours += [Pour(float(interval_s * (i + 1)), float(round(m * dose_g))) for i, m in enumerate(pattern)]
+    return pours
+
+
+def pattern_text(pattern):
+    """'2-4-2'처럼 뜸까지 넣은 배수 표기."""
+    return "-".join(str(m) for m in (BLOOM_MULTIPLE, *pattern))
+
+
+def pours_text(pours):
+    """Pour 목록을 기록 형식 '시작초:g;...'로."""
+    return ";".join(f"{p.start_s:g}:{p.grams:g}" for p in pours)
+
+
+def pattern_of(pours_value, dose_g):
+    """기록한 붓기에서 뜸 뒤 붓기 배수와 간격을 읽는다. 예: '0:40;60:80;120:40', 20 g → ((4, 2), 60)"""
+    pours = parse_pours(pours_value)
+    pattern = tuple(max(1, round(p.grams / dose_g)) for p in pours[1:])
+    interval = pours[1].start_s if len(pours) > 1 else 30.0
+    return pattern, interval
+
+
+def pattern_gap(a, b):
+    """두 붓기 배수의 차이. 짧은 쪽은 0배 붓기로 채워 같은 자리끼리 비교한다."""
+    n = max(len(a), len(b))
+    return sum(abs(x - y) for x, y in zip(a + (0,) * (n - len(a)), b + (0,) * (n - len(b))))
+
+
+def usual_recipe(bean, brews):
+    """평소 레시피: 같은 원두의 마지막 정상 잔. 기록이 없는 원두는 같은 배전도 묶음(중강배전 이상 / 그 밖)의 마지막
+    정상 잔의 물 양·붓기를 쓰고, 그것도 없으면 그 묶음의 기본 레시피(BASE_RECIPES)를 쓴다. 온도는 그 원두
+    배전도 범위의 가운데로 둔다(다른 원두의 온도는 배전도가 달라 그대로 쓰지 않는다)."""
+    normal = [b for b in brews if not b.flag]
+    same = [b for b in normal if b.bean_id == bean["bean_id"]]
+    low, high = roast_range(bean.get("roast_level", ""))
+    if same:
+        b = same[-1]
+        return Usual(b.recipe().water_g / b.dose_g, b.water_temp_c, *pattern_of(b.pours, b.dose_g),
+                     f"같은 원두의 마지막 잔 {b.brew_id}")
+    group = roast_group(bean.get("roast_level", ""))
+    alike = [b for b in normal if roast_group(b.row.get("roast_level", "")) == group]
+    if alike:
+        b = alike[-1]
+        return Usual(b.recipe().water_g / b.dose_g, (low + high) / 2, *pattern_of(b.pours, b.dose_g),
+                     f"이 원두는 기록이 없어 같은 배전도 묶음({group})의 마지막 잔 {b.brew_id}의 물 양·붓기와 "
+                     "배전도 범위 가운데 온도")
+    ratio, pattern, interval = BASE_RECIPES[group]
+    return Usual(ratio, (low + high) / 2, pattern, interval, f"기록이 없어 {group} 기본 레시피")
+
+
+def clog_limit(bean_id, brews):
+    """같은 원두에서 막혔던 잔의 대표 크기 중 가장 굵은 값. 이보다 고운 분쇄는 추천하지 않는다 (9.2)."""
+    sizes = grind_sizes(brews)
+    clogged = [sizes[b.brew_id][0] for b in brews
+               if b.bean_id == bean_id and b.flag == "막힘" and b.brew_id in sizes]
+    return max(clogged) if clogged else None
+
+
+def recommend_recipe(target, bean, brews, dose_g=20.0, params=DEFAULT_PARAMS):
+    """목표(추출수율, 가수 후 농도)에 맞는 레시피 전체를 고른다 (MODEL.md 9.2).
+
+    1. 후보: 전체 물(원두의 8–16배) × 붓기 나누기(뜸 2배 + 2·3·4배 붓기의 모든 조합) × 온도(배전도 범위, 1 °C 간격).
+       붓기 간격은 평소 레시피를 따른다. 붓는 시각이 맛에 주는 효과는 모델도 기록도 판단할 수 없어서다.
+    2. 후보마다 추출수율이 목표와 같아지는 분쇄 크기를 찾는다(곱게 갈수록 수율이 오르므로 하나로 정해짐).
+       700–1800 µm 밖이거나 같은 원두가 막혔던 크기보다 고우면 뺀다.
+    3. 가수량 = 음료로 나간 성분 ÷ 목표 농도 − 음료 무게. 가수 없이도 목표보다 묽으면 뺀다.
+    4. 남은 후보는 모두 목표에 맞으므로, 끊김이 2:00–3:30 안인 것을 먼저, 그다음 평소 레시피와 덜 다른 것을 고른다.
+       계산을 줄이려고 후보를 평소 레시피와 가까운 순서로 계산하고, 끊김이 2:00–3:30 안인 첫 후보에서 멈춘다.
+       범위 밖인 후보만 30개 쌓이면 더 찾지 않고 그중 가장 평소다운 후보를 고른다(모두 계산하면 30초 가까이 걸려서).
+    """
+    temp_low, temp_high = roast_range(bean.get("roast_level", ""))
+    usual = usual_recipe(bean, brews)
+    limit = clog_limit(bean["bean_id"], brews)
+    lowest = max(GRIND_RANGE_UM[0], limit) if limit else GRIND_RANGE_UM[0]
+
+    def distance(c):
+        ratio, pattern, temp = c
+        return abs(ratio - usual.water_ratio) + abs(temp - usual.temp_c) / 2 + pattern_gap(pattern, usual.pattern) / 2
+
+    candidates = sorted(((ratio, pattern, temp) for ratio in WATER_RATIOS
+                         for pattern in split_patterns(ratio - BLOOM_MULTIPLE)
+                         for temp in range(temp_low, temp_high + 1)), key=distance)
+    skipped = {"가장 곱게 갈아도 목표 수율보다 낮음": 0, "가장 굵게 갈아도 목표 수율보다 높음": 0, "가수 없이도 목표 농도보다 묽음": 0}
+    fallback = None
+    checked = out_of_window = 0
+    for ratio, pattern, temp in candidates:
+        checked += 1
+        recipe = Recipe(dose_g, float(temp), pattern_pours(dose_g, pattern, usual.interval_s), 0.0)
+
+        def ey(d50):
+            try:
+                return predict(recipe, grind_from_d50(d50), params).ey_pct
+            except RecipeError:  # 너무 오래 걸리는 레시피 등
+                return math.inf
+
+        if ey(lowest) < target.ey_pct:
+            skipped["가장 곱게 갈아도 목표 수율보다 낮음"] += 1
+            continue
+        if ey(GRIND_RANGE_UM[1]) > target.ey_pct:
+            skipped["가장 굵게 갈아도 목표 수율보다 높음"] += 1
+            continue
+        fine, coarse = math.log(lowest), math.log(GRIND_RANGE_UM[1])
+        for _ in range(9):  # 로그 크기에서 반씩 줄여 약 2 µm까지 좁힌다
+            middle = (fine + coarse) / 2
+            fine, coarse = (middle, coarse) if ey(math.exp(middle)) > target.ey_pct else (fine, middle)
+        d50 = round(math.exp((fine + coarse) / 2) / GRIND_STEP_UM) * GRIND_STEP_UM
+        while d50 <= (limit or 0):  # 10 µm로 맞추다 막힘 한계 안쪽으로 들어가지 않게
+            d50 += GRIND_STEP_UM
+        result = predict(recipe, grind_from_d50(d50), params)
+        bypass = round(result.dissolved_g / (target.tds_pct / 100) - result.beverage_g)
+        if bypass < 0:
+            skipped["가수 없이도 목표 농도보다 묽음"] += 1
+            continue
+        recipe = Recipe(dose_g, float(temp), recipe.pours, float(bypass))
+        found = Recommendation(recipe, float(d50), predict(recipe, grind_from_d50(d50), params), ratio, pattern,
+                               usual.interval_s, usual, (temp_low, temp_high), limit, checked, skipped)
+        if GOOD_DRAWDOWN_S[0] <= found.prediction.drawdown_end_s <= GOOD_DRAWDOWN_S[1]:
+            return found
+        fallback = fallback or found  # 끊김이 범위 밖이어도 가장 평소다운 후보는 남겨 둔다
+        out_of_window += 1
+        if out_of_window >= OUT_OF_WINDOW_LIMIT:
+            break
+    if fallback:
+        fallback.checked = checked
+        return fallback
+    reasons = ", ".join(f"{k} {v}개" for k, v in skipped.items() if v)
+    raise NoRecipeError(f"목표(추출수율 {target.ey_pct:.1f}%, 농도 {target.tds_pct:.2f}%)에 맞는 레시피를 찾지 못했어요. "
+                        f"후보 {checked}개 중 {reasons}.")
