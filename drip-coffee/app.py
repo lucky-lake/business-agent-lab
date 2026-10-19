@@ -1316,9 +1316,86 @@ def flow_grind(flow):
         go_to(4)
 
 
+# 4단계 '문제가 있었나요?'에서 고르는 표시. 처음 쓰는 사람도 알 수 있게 풀어 쓴다.
+FLAG_CHOICES = {"": "없었어요", "막힘": "물이 고여 잘 안 빠졌어요", "흘림": "물이나 커피를 흘렸어요",
+                "측정실수": "시각이나 무게를 잘못 쟀어요", "연습": "연습으로 내렸어요", "기타": "그 밖의 문제가 있었어요"}
+
+
+def versus_time(predicted_s, actual_s):
+    """끊긴 시각을 예측과 비교한 한 문장."""
+    diff = actual_s - predicted_s
+    if abs(diff) < 3:
+        return f"예측({clock(predicted_s)})과 거의 같아요."
+    return f"예측({clock(predicted_s)})보다 {abs(diff):.0f}초 {'늦게' if diff > 0 else '빨리'} 끊겼어요."
+
+
+def versus_grams(predicted_g, actual_g):
+    """음료 무게를 예측과 비교한 한 문장."""
+    diff = actual_g - predicted_g
+    if abs(diff) < 1:
+        return f"예측({predicted_g:.0f} g)과 거의 같아요."
+    return f"예측({predicted_g:.0f} g)보다 {abs(diff):.0f} g {'많아요' if diff > 0 else '적어요'}."
+
+
+def flow_brew(flow):
+    """4단계: 내리기와 기록. 맞춘 붓기 일정대로 내리고, 끊긴 시각과 음료 무게를 적으면 예측과 비교한다."""
+    recipe, prediction = flow["recipe"], flow["prediction"]
+    html('<div class="dc-lead">타이머를 켜고 첫 물(뜸)을 붓는 순간을 <b>0:00</b>으로 해요. 아래 시각에 맞춰 부어 주세요.<br>'
+         "물줄기가 끊기고 방울로 바뀌면 드리퍼를 바로 빼고, 그 시각을 적어요. "
+         "뜸은 처음에 물을 조금 부어 가루를 고루 적시는 단계예요.</div>")
+    grind = f"{flow['measured_d50_um']:.0f} µm (사진으로 잼)" if flow.get("measured_d50_um") else "사진 없음"
+    html(rows([
+        ("원두 · 물 온도", f"{recipe.dose_g:g} g · {recipe.water_temp_c:g} °C"),
+        ("분쇄", (f"{flow['clicks']}클릭 · " if flow.get("clicks") is not None else "") + grind),
+        ("물", f"{recipe.water_g:g} g · 드리퍼를 뺀 뒤 가수 {recipe.bypass_g:g} g"),
+    ]))
+    section("붓기 일정", "붓는 방식(가운데로 붓기, 원을 그리며 붓기)은 평소대로 해요.")
+    html(rows(pour_rows(recipe, flow["pattern"])))
+    html(f'<div class="dc-caption">예상: 물줄기는 {clock(prediction.drawdown_end_s)}쯤 끊기고, 가수 전 음료는 '
+         f"약 {prediction.beverage_g:.0f} g이에요. 모델 예측이라 원두에 따라 20초쯤 다를 수 있어요.</div>")
+
+    section("결과 적기", "드리퍼를 뺀 시각과, 가수하기 전에 잰 음료 무게예요.")
+    c1, c2 = st.columns(2)
+    drawdown = c1.text_input("물줄기가 끊긴 시각", value=flow.get("drawdown_text", ""), placeholder="예: 2:25",
+                             key="flow-drawdown", help="분:초(2:25)나 초(145)로 적어요.")
+    beverage = c2.number_input("음료 무게 (g, 가수 전)", min_value=0.0, step=0.1, format="%.1f",
+                               value=flow.get("beverage_g"), key="flow-beverage",
+                               help="서버째 잰 무게에서 빈 서버 무게를 빼요. 가수하기 전에 재요.")
+    with st.expander("문제가 있었나요? (선택)"):
+        flags = list(FLAG_CHOICES)
+        flag = st.radio("문제", flags, index=flags.index(flow.get("flag", "")), format_func=FLAG_CHOICES.get,
+                        key="flow-flag", label_visibility="collapsed")
+        html('<div class="dc-caption">문제가 있었던 잔도 기록은 남기지만, 다음 추천을 배울 때는 빼요.</div>')
+
+    seconds = None
+    try:
+        seconds = cal.parse_clock(drawdown)
+    except cal.BrewLogError as error:
+        notice(str(error), error=True)
+    if seconds and beverage:
+        html(
+            '<div class="dc-cards">'
+            + card("물줄기 끊김", clock(seconds), "", versus_time(prediction.drawdown_end_s, seconds))
+            + card("음료 (가수 전)", f"{beverage:g}", "g", versus_grams(prediction.beverage_g, beverage))
+            + "</div>"
+        )
+        st.altair_chart(timeline_chart(prediction, recipe, actual_end=seconds), width="stretch")
+        html('<div class="dc-caption">파란 선은 모델이 예측한 음료가 나오는 모습이에요. 진한 회색 점선이 실제로 끊긴 시각이에요.</div>')
+
+    c1, c2 = st.columns([1, 2])
+    if c1.button("이전", width="stretch", key="flow-back-4"):
+        go_to(3)
+    if c2.button("다음: 맛 평가", type="primary", width="stretch", key="flow-next-4"):
+        if not (seconds and beverage):
+            notice("물줄기가 끊긴 시각과 음료 무게를 적어 주세요. 다음 추천을 맞추는 데 써요.", error=True)
+            return
+        flow.update(drawdown_text=drawdown, drawdown_end_s=seconds, beverage_g=float(beverage), flag=flag)
+        go_to(5)
+
+
 def flow_later(flow):
-    """4단계부터는 준비 중. 지금은 '내 기록 보기'의 '직접 기록하기'로 이어서 한다."""
-    notice("4단계(내리기와 기록)부터는 준비 중이에요. 지금은 첫 화면의 '내 기록 보기 → 직접 기록하기'로 기록해 주세요.")
+    """5단계부터는 준비 중. 지금은 '내 기록 보기'의 '직접 기록하기'로 이어서 한다."""
+    notice("5단계(맛 평가)부터는 준비 중이에요. 지금은 첫 화면의 '내 기록 보기 → 직접 기록하기'로 기록해 주세요.")
     c1, c2 = st.columns([1, 2])
     if c1.button("이전", width="stretch", key="flow-back-later"):
         go_to(flow["step"] - 1)
@@ -1330,7 +1407,7 @@ def flow_page():
     flow = st.session_state.setdefault("flow", {"step": 1})
     step = flow["step"]
     flow_header(min(step, len(FLOW_STEPS)))
-    {1: flow_equipment, 2: flow_base_recipe, 3: flow_grind}.get(step, flow_later)(flow)
+    {1: flow_equipment, 2: flow_base_recipe, 3: flow_grind, 4: flow_brew}.get(step, flow_later)(flow)
 
 
 def open_page(page):

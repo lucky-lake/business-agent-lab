@@ -103,3 +103,25 @@ def test_grind_step_asks_for_a_photo_and_can_go_on_without_one(monkeypatch, my_f
     button(at, "flow-skip-3").click().run()
     assert not at.exception and has_text(at, "4 / 6 단계")
     assert at.session_state["flow"]["measured_d50_um"] is None
+
+
+def test_brew_step_compares_the_result_with_the_prediction(monkeypatch, my_files):
+    # 4단계: 끊긴 시각과 음료 무게를 적으면 예측과 비교하고, 둘 다 있어야 맛 평가로 넘어간다.
+    at = start(monkeypatch, *my_files)
+    button(at, "home-start").click().run()
+    at.selectbox(key="flow-bean").set_value("B02").run()
+    at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백")
+    button(at, "flow-next-1").click().run()
+    button(at, "flow-next-2").click().run()
+    button(at, "flow-skip-3").click().run()
+    assert has_text(at, "붓기 일정") and has_text(at, "0:00")
+    button(at, "flow-next-4").click().run()
+    assert has_text(at, "물줄기가 끊긴 시각과 음료 무게를 적어 주세요")
+    at.text_input(key="flow-drawdown").set_value("2:3x").run()
+    assert has_text(at, "2:42(분:초)")  # 잘못 적으면 적는 법을 알려 준다
+    at.text_input(key="flow-drawdown").set_value("2:20").run()
+    at.number_input(key="flow-beverage").set_value(176.0).run()
+    assert not at.exception and has_text(at, "끊겼어요") and has_text(at, "예측(")
+    button(at, "flow-next-4").click().run()
+    flow = at.session_state["flow"]
+    assert flow["step"] == 5 and flow["drawdown_end_s"] == 140 and flow["beverage_g"] == 176.0 and flow["flag"] == ""
