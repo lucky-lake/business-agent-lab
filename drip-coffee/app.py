@@ -277,8 +277,10 @@ STYLE = """
 @media (max-width: 480px) { .dc-wide { display: none; } .dc-lrow { gap: 10px; padding: 12px 16px; } }
 
 /* 사용법(튜토리얼): 장마다 움직이는 그림. 그림은 화면에 새로 그려질 때 한 번 재생된다 */
-.st-key-home-tutorial { margin: -20px 0 8px; }
-.st-key-home-tutorial button p { font-size: 15px; font-weight: 600; color: #3182F6; }
+[class*="st-key-home-guide-"] { margin: -20px 0 8px; }
+.st-key-home-tutorial button p { font-size: 15px; font-weight: 500; color: #8B95A1; }
+.st-key-home-guide-new .st-key-home-tutorial button p { font-weight: 600; color: #3182F6; }
+.st-key-tutorial-skip button p { color: #8B95A1; }
 .dc-tut-art { position: relative; height: 240px; margin: 4px 0 24px; border-radius: 24px; background: #F2F4F6;
               overflow: hidden; }
 .dc-tut-title { font-size: 26px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; line-height: 1.3;
@@ -324,20 +326,24 @@ STYLE = """
 .dc-tut-size { position: absolute; right: 12px; bottom: 12px; padding: 4px 12px; border-radius: 100px;
                background: #3182F6; color: #FFFFFF; font-size: 14px; font-weight: 700;
                animation: dc-pop-in .45s var(--dc-spring) 2s both; }
-/* 3장: 붓기 시간표 위를 물방울이 지나가며, 지나간 붓기 막대가 차례로 진해진다 */
-.dc-tut-track { position: absolute; left: 32px; right: 32px; top: 120px; height: 12px; border-radius: 6px;
+/* 3장: 커피포트가 붓기 시간표를 4.5초에 지나간다. 파란 칸(붓는 때)에 닿으면 기울어 붓고, 칸이 끝날 때쯤 다시
+   똑바로 선다. 칸은 포트가 지나가는 만큼 채워지고, 기울었을 때 주둥이 끝이 그 채워지는 끝 바로 위에 온다.
+   기울기의 % 값은 TUTORIAL_POURS(4–18, 34–50, 64–80)에 맞춘 것이라 칸을 바꾸면 함께 바꾼다 */
+.dc-tut-track { position: absolute; left: 80px; right: 28px; top: 124px; height: 12px; border-radius: 6px;
                 background: #FFFFFF; }
-.dc-tut-pour { position: absolute; top: 0; bottom: 0; border-radius: 6px; background: #3182F6;
-               animation: dc-poured .3s var(--dc-ease) var(--d) both; }
-@keyframes dc-poured { from { opacity: .3; } to { opacity: 1; } }
+.dc-tut-pour { position: absolute; top: 0; bottom: 0; overflow: hidden; border-radius: 6px; background: #D6E8FF; }
+.dc-tut-pour::after { content: ""; position: absolute; inset: 0; background: #3182F6; transform-origin: left center;
+                      animation: dc-fill var(--t) linear var(--d) both; }
+@keyframes dc-fill { from { transform: scaleX(0); } }
 .dc-tut-time { position: absolute; top: 22px; font-size: 13px; font-weight: 600; color: #8B95A1; white-space: nowrap; }
-.dc-tut-head { position: absolute; top: -10px; width: 3px; height: 32px; margin-left: -1px; border-radius: 2px;
-               background: #2A2A2A; animation: dc-play 3.2s .3s linear both; }
-.dc-tut-drop { position: absolute; top: -78px; margin-left: -22px; font-family: "Material Symbols Rounded";
-               font-size: 44px; line-height: 1; color: #3182F6; font-variation-settings: "FILL" 1;
-               animation: dc-play 3.2s .3s linear both, dc-tilt .8s .3s ease-in-out 4 alternate; }
+.dc-tut-pourer { position: absolute; top: 0; left: 0; animation: dc-play 4.5s .3s linear both; }
 @keyframes dc-play { from { left: 0; } to { left: 100%; } }
-@keyframes dc-tilt { from { rotate: 0deg; } to { rotate: -18deg; } }
+.dc-kettle { position: absolute; left: -61px; top: -86px; width: 64px; height: 64px; fill: none; stroke: #3182F6;
+             stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; transform-origin: 50% 60%;
+             animation: dc-kettle-tilt 4.5s .3s var(--dc-ease) both; }
+@keyframes dc-kettle-tilt { 0%, 2% { transform: none; } 5%, 16% { transform: rotate(30deg); } 20%, 32% { transform: none; }
+                            35%, 48% { transform: rotate(30deg); } 52%, 62% { transform: none; }
+                            65%, 78% { transform: rotate(30deg); } 82%, 100% { transform: none; } }
 .dc-tut-note { position: absolute; left: 0; right: 0; bottom: 20px; text-align: center; font-size: 14px; color: #4E5968; }
 /* 4장: 맛 육각형이 커지고, 다음 잔이 어떻게 바뀌는지 한 줄이 올라온다 */
 .dc-tut-hex { position: absolute; top: 12px; left: 50%; width: 170px; height: 158px; margin-left: -85px; }
@@ -2094,8 +2100,11 @@ def home_page():
          '<div class="dc-eyebrow">Drip Coffee</div><div class="dc-hero">오늘의 한 잔</div>'
          '<div class="dc-lead">원두와 장비만 알려 주면 레시피부터 기록까지 안내해요.<br>'
          "맛을 매길수록 다음 잔이 내 입맛에 가까워져요.</div></div>")
-    st.button("처음이세요? 사용법 보기 ›", type="tertiary", key="home-tutorial", on_click=open_page, args=("tutorial",))
     brews = cal.load_brews(BREWS_PATH)
+    # 사용법 링크: 처음 쓰는 사람에게는 파랗게, 기록이 있는 사람에게는 '다시 보기'로 회색으로 작게
+    with st.container(key="home-guide-again" if brews else "home-guide-new"):
+        st.button("사용법 다시 보기 ›" if brews else "처음이세요? 사용법 보기 ›", type="tertiary", key="home-tutorial",
+                  on_click=open_page, args=("tutorial",))
     with st.container(key="home-list"):
         if brews:
             last = brews[-1]
@@ -2111,9 +2120,10 @@ def home_page():
                  "내 기록 보기", open_page, ("history",))
     st.button("모델 점검 (검증용)", type="tertiary", width="stretch", key="home-check", on_click=open_page, args=("check",))
     with st.container(key="home-cta"):  # 화면 아래에 붙는 버튼 (한 잔 내리기의 아래 버튼과 같은 모양)
-        # 기록이 하나도 없으면 사용법부터 보여 준다
+        # 기록이 하나도 없으면 사용법부터 보여 준다 (이번 접속에서 이미 봤으면 바로 1단계로)
+        first = not brews and not st.session_state.get("tutorial_seen")
         st.button("시작하기", type="primary", width="stretch", key="home-start", on_click=open_page,
-                  args=("flow" if brews else "tutorial",))
+                  args=("tutorial" if first else "flow",))
 
 
 # 사용법 1장의 도구 그림 (선으로 직접 그림, 88×88). 이름 → SVG 안쪽
@@ -2123,8 +2133,8 @@ TOOL_ICONS = (
     ("드리퍼", '<path d="M16 23 H70 L54 55 H32 Z"/><path d="M25 65 H61"/><path d="M36 55 V65 M50 55 V65"/>'
               '<path d="M70 25 C 83 28, 83 43, 63 41"/>'),
     ("필터", '<path d="M14 23 Q44 12 74 23 L49 69 H39 Z"/><path d="M22 23.5 L40 68" stroke-width="2.4" opacity=".55"/>'),
-    ("그라인더", '<rect x="29" y="37" width="30" height="35" rx="6"/><path d="M25 37 H63"/><path d="M44 37 V22 H67"/>'
-                f'<circle cx="69" cy="22" r="4.5" fill="{BRAND}"/>'),
+    ("그라인더", '<path d="M35 32 H53 V71 Q53 75 49 75 H39 Q35 75 35 71 Z"/><path d="M35 46 H53 M35 52 H53"/>'
+                f'<path d="M32 32 H56"/><path d="M44 32 V20 H69 V16"/><circle cx="69" cy="12" r="5" fill="{BRAND}"/>'),
 )
 TOOL_DONE = (f'<circle cx="44" cy="44" r="28" fill="{BRAND}" stroke="none"/>'
              '<path d="M31 44 L40 53 L58 35" stroke="#FFFFFF" stroke-width="5"/>')
@@ -2157,13 +2167,24 @@ def tutorial_photo():
             '<span class="dc-tut-size">대표 크기 1090 µm</span></div>')
 
 
+# 3장의 붓는 칸: (시작 %, 길이 %, 시각). STYLE의 dc-kettle-tilt 값과 맞춘다
+TUTORIAL_POURS = [(4, 14, "0:00 뜸"), (34, 16, "0:45"), (64, 16, "1:30")]
+TUTORIAL_POUR_S, TUTORIAL_POUR_START_S = 4.5, 0.3  # 포트가 시간표를 지나는 시간, 시작하는 때(초)
+# 커피포트 (72×72): 아래로 넓어지는 몸통, 왼쪽 손잡이, 오른쪽 위로 곧게 뻗은 주둥이(끝 67, 31)
+KETTLE = ('<path d="M21 30 H45 L50 60 Q50 63 47 63 H19 Q16 63 16 60 Z"/><path d="M18 36 C 8 38, 8 52, 17 54"/>'
+          '<path d="M49 54 L67 31"/>')
+
+
 def tutorial_pours():
-    """3장: 물방울이 시간표를 3.2초에 지나가고, 지나간 붓기 막대가 진해진다."""
-    pours = "".join(f'<span class="dc-tut-pour" style="left:{x}%;width:{w}%;--d:{0.3 + 3.2 * x / 100:.2f}s"></span>'
-                    f'<span class="dc-tut-time" style="left:{x}%">{t}</span>'
-                    for x, w, t in [(0, 9, "0:00 뜸"), (30, 12, "0:45"), (60, 12, "1:30")])
-    return (f'<div class="dc-tut-track">{pours}<span class="dc-tut-head"></span>'
-            '<span class="dc-tut-drop">water_drop</span></div><div class="dc-tut-note">물 빠짐까지 예측 2:32</div>')
+    """3장: 커피포트가 시간표를 지나가며 파란 칸에서 기울어 붓고, 칸은 포트가 지나간 만큼 채워진다."""
+    def at(percent):
+        return TUTORIAL_POUR_START_S + TUTORIAL_POUR_S * percent / 100
+
+    pours = "".join(f'<span class="dc-tut-pour" style="left:{x}%;width:{w}%;--d:{at(x):.2f}s;'
+                    f'--t:{TUTORIAL_POUR_S * w / 100:.2f}s"></span><span class="dc-tut-time" style="left:{x}%">{t}</span>'
+                    for x, w, t in TUTORIAL_POURS)
+    return (f'<div class="dc-tut-track">{pours}<span class="dc-tut-pourer"><svg class="dc-kettle" viewBox="0 0 72 72">'
+            f'{KETTLE}</svg></span></div><div class="dc-tut-note">물 빠짐까지 예측 2:32</div>')
 
 
 def tutorial_taste():
@@ -2187,10 +2208,15 @@ TUTORIAL = (
      tutorial_tools),
     ("간 가루를 사진 한 장으로 재요", "가루를 축척 용지에 펴서 찍으면 알갱이 크기를 재서, 레시피를 내 가루에 맞춰요.",
      tutorial_photo),
-    ("안내대로 부어요", "언제, 얼마나 부을지 시간표로 보여 줘요. 저울과 타이머만 보면서 따라 하면 돼요.", tutorial_pours),
+    ("추천 레시피에 맞춰 추출해요", "언제, 얼마나 부을지 시간표로 보여 줘요. 저울과 타이머만 보면서 따라 하면 돼요.",
+     tutorial_pours),
     ("맛을 매기면 다음 잔이 맞춰져요", "Aroma·Flavor 같은 맛 6가지를 매기고 진하기를 고르면, 다음 잔의 물과 분쇄가 "
      "내 입맛 쪽으로 바뀌어요.", tutorial_taste),
 )
+
+
+def tutorial_prev():
+    st.session_state["tutorial"] = max(st.session_state.get("tutorial", 0) - 1, 0)
 
 
 def tutorial_next():
@@ -2204,8 +2230,13 @@ def tutorial_next():
 def tutorial_page():
     """사용법: 한 잔 내리기의 흐름을 네 장의 움직이는 그림으로 보여 준다(토스 온보딩처럼). 기록이 하나도 없을 때
     '시작하기'를 누르면 먼저 나오고, 시작 화면의 '사용법 보기'로 언제든 다시 볼 수 있다."""
-    back_link("tutorial")
     page = min(st.session_state.setdefault("tutorial", 0), len(TUTORIAL) - 1)
+    last = page == len(TUTORIAL) - 1
+    st.session_state["tutorial_seen"] = True
+    with st.container(key="tutorial-top", horizontal=True, horizontal_alignment="distribute"):
+        back_link("tutorial")
+        if not last:  # 마지막 장은 '시작하기'가 같은 일을 한다
+            st.button("건너뛰기", type="tertiary", key="tutorial-skip", on_click=open_page, args=("flow",))
     title, lead, art = TUTORIAL[page]
     dots = "".join(f'<i class="{"on" if i == page else ""}"></i>' for i in range(len(TUTORIAL)))
     with st.container(key=f"tutorial-{page}"):  # 장이 바뀌면 새로 그려져 그림이 처음부터 움직인다
@@ -2213,13 +2244,12 @@ def tutorial_page():
         st.markdown(f'<div class="dc-tut-art" aria-hidden="true">{art()}</div>', unsafe_allow_html=True)
         html(f'<div class="dc-eyebrow">{page + 1} / {len(TUTORIAL)}</div><div class="dc-tut-title">{escape(title)}</div>'
              f'<div class="dc-tut-lead">{escape(lead)}</div><div class="dc-dots">{dots}</div>')
-    last = page == len(TUTORIAL) - 1
-    with st.container(key="flow-cta"):  # 한 잔 내리기와 같은 아래 버튼 자리
-        if last:
+    with st.container(key="flow-cta"):  # 한 잔 내리기와 같은 아래 버튼 자리. 첫 장 말고는 '이전 | 다음'
+        if page == 0:
             right = st.container()
         else:
             left, right = st.columns([1, 2])
-            left.button("건너뛰기", width="stretch", key="tutorial-skip", on_click=open_page, args=("flow",))
+            left.button("이전", width="stretch", key="tutorial-prev", on_click=tutorial_prev)
         right.button("시작하기" if last else "다음", type="primary", width="stretch", key="tutorial-next",
                      on_click=tutorial_next)
 

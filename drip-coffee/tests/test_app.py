@@ -62,6 +62,7 @@ def my_files(tmp_path):
 def test_first_time_user_with_no_beans_or_records(monkeypatch, empty_files):
     at = start(monkeypatch, *empty_files)
     assert not at.exception and not has_text(at, "같은 원두로 내리기") and has_text(at, "아직 없어요")
+    assert button(at, "home-tutorial").label.startswith("처음이세요?")
     button(at, "home-start").click().run()
     # 기록이 하나도 없으면 사용법 네 장부터 보여 주고, 마지막 장의 '시작하기'로 1단계에 간다
     assert not at.exception and has_text(at, "1 / 4") and has_text(at, "원두와 장비를 골라요")
@@ -71,6 +72,10 @@ def test_first_time_user_with_no_beans_or_records(monkeypatch, empty_files):
     assert button(at, "tutorial-next").label == "시작하기" and not any(b.key == "tutorial-skip" for b in at.button)
     button(at, "tutorial-next").click().run()
     assert has_text(at, "아직 원두가 없어요") and button(at, "flow-add-first-bean")
+    # 같은 접속에서 다시 '시작하기'를 누르면 사용법을 또 보여 주지 않고 바로 1단계로 간다
+    button(at, "flow-home").click().run()
+    button(at, "home-start").click().run()
+    assert has_text(at, "1 / 6 단계")
     for page in ("history", "check"):
         button(at, "flow-home" if page == "history" else f"history-home").click().run()
         button(at, f"home-{page}").click().run()
@@ -103,9 +108,15 @@ def test_same_bean_row_fills_the_last_bean_but_not_the_filter(monkeypatch, my_fi
 def test_tutorial_can_be_opened_from_home_and_skipped(monkeypatch, my_files):
     # 기록이 있으면 '시작하기'는 바로 1단계로 가고, 사용법은 '사용법 보기'로 언제든 볼 수 있다
     at = start(monkeypatch, *my_files)
+    assert button(at, "home-tutorial").label.startswith("사용법 다시 보기")  # 기록이 있으면 '처음이세요?'라고 묻지 않는다
     button(at, "home-tutorial").click().run()
     assert not at.exception and has_text(at, "1 / 4")
     assert any("dc-tool" in e.proto.body for e in at.markdown)  # 움직이는 도구 그림 (SVG라서 markdown)
+    assert not any(b.key == "tutorial-prev" for b in at.button)  # 첫 장에는 '이전'이 없다
+    button(at, "tutorial-next").click().run()
+    assert has_text(at, "2 / 4")
+    button(at, "tutorial-prev").click().run()  # 앞 장으로 돌아가 다시 볼 수 있다
+    assert not at.exception and has_text(at, "1 / 4")
     button(at, "tutorial-skip").click().run()
     assert not at.exception and has_text(at, "1 / 6 단계")
     button(at, "flow-home").click().run()
