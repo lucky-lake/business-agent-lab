@@ -619,16 +619,13 @@ def show_profile(profile, grinder, clicks):
     """이번 측정(같은 가루로 찍은 사진을 합친 결과)의 요약 카드, 분포 곡선, 자세한 값."""
     low, high = profile.d50_range_um
     spread_low, spread_high = profile.spread_range_um
-    html(
-        '<div class="dc-cards">'
-        + card("대표 크기", f"{profile.d50_um:.0f}", "µm",
-               f"가루 무게의 절반이 이보다 작아요. 같은 가루를 다시 찍으면 {low:.0f}~{high:.0f} µm 사이로 나올 수 있어요.",
-               hero=True)
-        + card("가장 많은 크기", f"{profile.mode_um:.0f}", "µm", "분포 곡선에서 가장 높은 곳이에요.")
-        + card("대부분의 범위", f"{spread_low:.0f}~{spread_high:.0f}", "µm",
-               "가루 무게의 68%가 여기에 있어요. 평균 ± 표준편차 범위와 같아요.")
-        + "</div>"
+    summary(
+        tile("grain", "대표 크기", f"{profile.d50_um:.0f}", "µm", f"{grind_feel(profile.d50_um)} · 다시 찍으면 {low:.0f}~{high:.0f}"),
+        tile("bar_chart", "가장 많은 크기", f"{profile.mode_um:.0f}", "µm", "분포 곡선의 꼭대기"),
+        tile("straighten", "대부분의 범위", f"{spread_low:.0f}~{spread_high:.0f}", "µm", "가루 무게의 68%"),
+        tile("photo_camera", "잰 입자", f"{profile.n_particles}", "개", f"사진 {profile.n_photos}장"),
     )
+    html('<div class="dc-caption">대표 크기는 가루 무게의 절반이 이보다 작은 크기예요.</div>')
 
     st.altair_chart(distribution_chart(profile, st.session_state.get("show_count", False)), width="stretch")
     st.checkbox("개수 기준 곡선도 함께 보기 (회색 점선, 참고용)", key="show_count")
@@ -1370,18 +1367,15 @@ def new_recipe_view(brews):
 
     last = recipe.pours[-1]
     after_last = prediction.drawdown_end_s - (last.start_s + last.grams / em.DEFAULT_PARAMS.pour_rate_g_per_s)
-    section("예측 결과", "보정 전 모델이라 실제와 차이가 날 수 있어요. 기록이 쌓이면 흐름 저항과 머금는 물을 기록에 맞춰요.")
-    html(
-        '<div class="dc-cards three">'
-        + card("물줄기가 끊기는 시각", clock(prediction.drawdown_end_s), "",
-               f"이때 드리퍼를 빼요. 마지막 붓기를 마치고 약 {after_last:.0f}초 뒤예요.", hero=True)
-        + card("음료 (가수 전)", f"{prediction.beverage_g:.0f}", "g",
-               f"부은 물 {recipe.water_g:g} g 중 가루가 약 {prediction.held_liquid_g:.0f} g을 머금고 남아요.")
-        + card("추출수율", f"{prediction.ey_pct:.1f}", "%", "원두 무게 중 음료로 녹아 나온 비율이에요.")
-        + card("농도 (가수 후)", f"{prediction.tds_cup_pct:.2f}", "%",
-               f"가수 전 {prediction.tds_pct:.2f}%에 물 {bypass:g} g을 더한 값이에요.")
-        + "</div>"
+    section("예측 결과", "모델 예측이라 원두에 따라 20초쯤 다를 수 있어요.")
+    summary(
+        tile("timer", "끊김", clock(prediction.drawdown_end_s), "", f"마지막 붓기 끝나고 약 {after_last:.0f}초 뒤"),
+        tile("local_cafe", "음료 (가수 전)", f"{prediction.beverage_g:.0f}", "g",
+             f"가루가 약 {prediction.held_liquid_g:.0f} g을 머금어요"),
+        tile("science", "추출수율", f"{prediction.ey_pct:.1f}", "%", "원두 중 녹아 나온 비율"),
+        tile("opacity", "농도 (가수 후)", f"{prediction.tds_cup_pct:.2f}", "%", f"가수 전 {prediction.tds_pct:.2f}%"),
     )
+    pour_timeline(recipe, prediction.drawdown_end_s)
     st.altair_chart(timeline_chart(prediction, recipe), width="stretch")
     html('<div class="dc-caption">점선은 붓기를 시작한 시각이에요. 고인 물이 0이 되는 순간을 물줄기가 끊기는 순간으로 봐요.</div>')
 
@@ -1392,17 +1386,6 @@ def cached_recommendation(bean_id, dose_g, log_version):
     brews = cal.load_brews(BREWS_PATH)
     target = rec.preference_target(rec.brew_points(brews))
     return target, rec.recommend_recipe(target, cal.load_beans(BEANS_PATH)[bean_id], brews, dose_g)
-
-
-def pour_rows(recipe, pattern):
-    """붓기 일정: 시각, 이번에 붓는 양(원두의 몇 배), 누적. pattern은 뜸 뒤 붓기마다 원두의 몇 배인지."""
-    items, total = [], 0.0
-    multiples = (rec.BLOOM_MULTIPLE, *pattern)
-    for i, (pour, multiple) in enumerate(zip(recipe.pours, multiples)):
-        total += pour.grams
-        what = "뜸" if i == 0 else f"{i}번째 붓기"
-        items.append((f"{clock(pour.start_s)} · {what}", f"{pour.grams:g} g (원두의 {multiple}배) · 누적 {total:g} g"))
-    return items
 
 
 def recommend_tab():
@@ -1447,25 +1430,22 @@ def recommend_tab():
     time_limit_notice(r, target)
     section("추천 레시피", f"원두 {recipe.dose_g:g} g · 물 {recipe.water_g:g} g (원두의 {r.water_ratio}배, "
                          f"{rec.pattern_text(r.pattern)}배) · {r.interval_s:g}초 간격")
-    html(
-        '<div class="dc-cards three">'
-        + card("분쇄 대표 크기", f"{r.d50_um:.0f}", "µm", "갈고 나서 사진으로 재 보세요.", hero=True)
-        + card("물 온도", f"{recipe.water_temp_c:g}", "°C", f"{bean['roast_level']} 범위 {low}–{high} °C 안에서 골랐어요.")
-        + card("물", f"{recipe.water_g:g}", "g", f"원두의 {r.water_ratio}배를 아래 일정대로 나눠 부어요.")
-        + card("가수", f"{recipe.bypass_g:g}", "g", "물줄기가 끊겨 드리퍼를 뺀 뒤 더하는 물이에요.")
-        + "</div>"
+    summary(
+        tile("grain", "분쇄", f"{r.d50_um:.0f}", "µm", grind_feel(r.d50_um)),
+        tile("device_thermostat", "물 온도", f"{recipe.water_temp_c:g}", "°C", f"{bean['roast_level']} {low}–{high} °C"),
+        tile("water_drop", "물", f"{recipe.water_g:g}", "g", f"원두의 {r.water_ratio}배"),
+        tile("water_full", "가수", f"{recipe.bypass_g:g}", "g", "드리퍼를 뺀 뒤 더해요"),
     )
     section("붓기 일정", "붓는 방식(센터 푸어, 원형 푸어 등)은 평소대로 해요. 모델은 붓는 시각과 양만 계산해요.")
-    html(rows(pour_rows(r.recipe, r.pattern)))
+    pour_timeline(r.recipe, prediction.drawdown_end_s)
 
-    section("예상", "보정 전 모델이라 시간은 실제와 다를 수 있어요. 끊김은 예상 시각이 아니라 물줄기가 끊기는 순간에 드리퍼를 빼요.")
-    html(
-        '<div class="dc-cards three">'
-        + card("물줄기가 끊기는 시각", clock(prediction.drawdown_end_s), "", "이때쯤 드리퍼를 빼게 돼요.", hero=True)
-        + card("음료 (가수 전)", f"{prediction.beverage_g:.0f}", "g", "가수하기 전에 잰 무게예요.")
-        + card("추출수율", f"{prediction.ey_pct:.1f}", "%", f"목표 {target.ey_pct:.1f}%")
-        + card("농도 (가수 후)", f"{prediction.tds_cup_pct:.2f}", "%", f"목표 {target.tds_pct:.2f}%")
-        + "</div>"
+    section("예상", "끊김은 예상 시각이 아니라 물줄기가 끊기는 순간에 드리퍼를 빼요. 모델 예측이라 원두에 따라 20초쯤 "
+                  "다를 수 있어요.")
+    summary(
+        tile("timer", "끊김", clock(prediction.drawdown_end_s), "", "이때쯤 드리퍼를 빼요"),
+        tile("local_cafe", "음료 (가수 전)", f"{prediction.beverage_g:.0f}", "g", "가수하기 전 무게"),
+        tile("science", "추출수율", f"{prediction.ey_pct:.1f}", "%", f"목표 {target.ey_pct:.1f}%"),
+        tile("opacity", "농도 (가수 후)", f"{prediction.tds_cup_pct:.2f}", "%", f"목표 {target.tds_pct:.2f}%"),
     )
     st.altair_chart(timeline_chart(prediction, recipe), width="stretch")
 

@@ -152,6 +152,10 @@ def test_model_check_summarizes_errors_and_opens_the_cup_you_tap(monkeypatch, my
     flagged = next(c for c in comparisons if c.brew.flag == "막힘")
     button(at, f"check-cup-{flagged.brew.brew_id}").click().run()
     assert not at.exception and has_text(at, "판정에서 뺌") and has_text(at, "보정과 위 요약에서는 빼요")
+    # 나머지 보기도 요약 카드로 열린다
+    for view, words in (("레시피 계산", "예측 결과"), ("추천 자세히", "추천 레시피"), ("사진만 재기", "사진을 넣으면")):
+        next(w for w in at.get("button_group") if w.key == "check-view").set_value(view).run()
+        assert not at.exception and has_text(at, words), view
 
 
 def test_bean_starts_blank_and_must_be_chosen(monkeypatch, my_files):
