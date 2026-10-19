@@ -476,6 +476,7 @@ def recent_brews_table(brews, limit=8):
             "음료 (g)": cell(b.beverage_g),
             "만족도": cell(b.quality_score, "{:.2f}"),
             "필터": b.filter_paper or "–",
+            "추천": "예" if b.row.get("followed_recommendation") else "–",
             "표시": b.flag or "–",
         }
         for b in reversed(brews[-limit:])
@@ -597,12 +598,23 @@ def log_tab():
     def key(name):
         return f"log-{form}-{name}"
 
+    prefill = st.session_state.get("log_prefill")  # 추천 탭의 '이 레시피로 기록하기'
+    if prefill:
+        notice(f"추천 탭의 레시피를 채워 뒀어요 (추천 분쇄 {prefill['d50_um']:.0f} µm). "
+               "다르게 내렸다면 고쳐 주세요. 분쇄 대표 크기 칸에는 추천값이 아니라 사진으로 잰 값을 넣어요.")
+        if st.button("채운 레시피 지우기", key=key("clear-prefill")):
+            st.session_state.pop("log_prefill")
+            st.session_state["log_form"] = form + 1
+            st.rerun()
+
     section("잔 정보")
     c1, c2, c3 = st.columns(3)
     brew_date = c1.date_input("날짜", value=date.today(), key=key("date"))
     brew_id = c2.text_input("추출번호", cal.next_brew_id(brew_date.isoformat(), brews), key=key(f"id-{brew_date}"))
     bean_ids = list(beans)
     last_bean = brews[-1].bean_id if brews and brews[-1].bean_id in beans else bean_ids[0]
+    if prefill and prefill["bean_id"] in beans:
+        last_bean = prefill["bean_id"]
     bean_id = c3.selectbox(
         "원두", bean_ids, index=bean_ids.index(last_bean),
         format_func=lambda b: f"{b} {beans[b]['name']} ({beans[b]['role']})", key=key("bean"),
@@ -638,19 +650,29 @@ def log_tab():
              "다른 잔의 값을 빌려 써요.</div>")
 
     section("레시피")
+    # 기본값: 추천에서 넘어온 레시피(같은 원두일 때) → 같은 원두의 지난 잔 → 마지막 잔
+    use_prefill = bool(prefill) and prefill["bean_id"] == bean_id
+    default = {
+        "dose": prefill["dose_g"] if use_prefill else (previous.dose_g if previous else 20.0),
+        "temp": prefill["water_temp_c"] if use_prefill else (previous.water_temp_c if previous else 92.0),
+        "bypass": prefill["bypass_g"] if use_prefill else (previous.bypass_g if previous else 0.0),
+        "pours": prefill["pours"] if use_prefill else (previous.pours if previous else "0:40;30:60;60:60;90:60"),
+        "recipe": "추천 레시피" if use_prefill else (previous.row.get("recipe", "") if previous else ""),
+    }
     c1, c2, c3 = st.columns(3)
     dose = c1.number_input("원두 무게 (g)", min_value=0.0, step=0.1, format="%.1f",
-                           value=previous.dose_g if previous else 20.0, key=key(f"dose-{bean_id}"))
+                           value=default["dose"], key=key(f"dose-{bean_id}"))
     temp = c2.number_input("물 온도 (°C)", min_value=0.0, max_value=100.0, step=1.0, format="%.0f",
-                           value=previous.water_temp_c if previous else 92.0, key=key(f"temp-{bean_id}"))
+                           value=default["temp"], key=key(f"temp-{bean_id}"))
     bypass = c3.number_input("가수량 (g)", min_value=0.0, step=1.0, format="%.0f",
-                             value=previous.bypass_g if previous else 0.0, key=key(f"bypass-{bean_id}"))
+                             value=default["bypass"], key=key(f"bypass-{bean_id}"))
     c1, c2 = st.columns([2, 1])
-    pours = c1.text_input("붓기 기록 (시작초:g)", previous.pours if previous else "0:40;30:60;60:60;90:60",
+    pours = c1.text_input("붓기 기록 (시작초:g)", default["pours"],
                           help="각 붓기를 시작한 시각(초)과 그 회차에 부은 양(g)을 ;로 이어 적어요. 예: 0:40;30:60;60:60;90:60",
                           key=key(f"pours-{bean_id}"))
-    recipe_name = c2.text_input("레시피 이름 (선택)", previous.row.get("recipe", "") if previous else "",
-                                key=key(f"recipe-{bean_id}"))
+    recipe_name = c2.text_input("레시피 이름 (선택)", default["recipe"], key=key(f"recipe-{bean_id}"))
+    followed = use_prefill and st.checkbox("추천 레시피를 따라 내렸어요", value=True, key=key("followed"),
+                                           help="10/25 점검(추천 레시피로 내린 잔 수)과 추천이 맞았는지 분석에 써요.")
 
     section("결과", "드리퍼를 뺀 시각과, 가수하기 전에 잰 음료 무게예요.")
     c1, c2 = st.columns(2)
@@ -676,6 +698,7 @@ def log_tab():
                 "grind_d50_um": d50 or None, "recipe": recipe_name, "dose_g": dose, "water_temp_c": temp,
                 "pours": pours, "drawdown_end_s": cal.parse_clock(drawdown), "beverage_g": beverage,
                 "bypass_g": bypass, **taste, "memo": memo, "flag": flag,
+                "followed_recommendation": prefill["followed"] if followed else "",
             }
             cal.append_brew(record, BREWS_PATH)
         except cal.BrewLogError as error:
@@ -684,6 +707,7 @@ def log_tab():
             score = cal.load_brews(BREWS_PATH)[-1].quality_score
             st.session_state["log_saved"] = f"저장했어요: {brew_id}" + (f" · 만족도 {score:.2f}" if score else "")
             st.session_state["log_form"] = form + 1
+            st.session_state.pop("log_prefill", None)
             st.rerun()
 
     section("최근 기록", f"모두 {len(brews)}잔")
@@ -984,6 +1008,16 @@ def recommend_tab():
         + "</div>"
     )
     st.altair_chart(timeline_chart(prediction, recipe), width="stretch")
+
+    if st.button("이 레시피로 기록하기", type="primary", width="stretch", key="rec-to-log"):
+        st.session_state["log_prefill"] = {
+            "bean_id": bean_id, "dose_g": recipe.dose_g, "water_temp_c": recipe.water_temp_c,
+            "pours": rec.pours_text(recipe.pours), "bypass_g": recipe.bypass_g, "d50_um": r.d50_um,
+            # 10/25 점검(추천 레시피 3잔 이상)과 나중 분석을 위해 무엇을 추천했는지 함께 남긴다
+            "followed": f"예 (추천 {r.d50_um:.0f} µm, 목표 {target.ey_pct:.1f}% · {target.tds_pct:.2f}%)",
+        }
+        st.session_state["log_form"] = st.session_state.get("log_form", 0) + 1  # 기록 탭 입력칸을 새로 만들어 채운다
+        notice("기록·보정 탭에 이 레시피를 채워 뒀어요. 내린 뒤 결과와 맛만 적으면 돼요.")
 
     with st.expander("왜 이 레시피인가요?"):
         usual = r.usual
