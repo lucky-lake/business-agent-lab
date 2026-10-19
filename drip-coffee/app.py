@@ -276,6 +276,79 @@ STYLE = """
 .dc-lrow-chev { font-family: "Material Symbols Rounded"; font-size: 22px; color: #B0B8C1; margin-left: -8px; }
 @media (max-width: 480px) { .dc-wide { display: none; } .dc-lrow { gap: 10px; padding: 12px 16px; } }
 
+/* 사용법(튜토리얼): 장마다 움직이는 그림. 그림은 화면에 새로 그려질 때 한 번 재생된다 */
+.st-key-home-tutorial { margin: -20px 0 8px; }
+.st-key-home-tutorial button p { font-size: 15px; font-weight: 600; color: #3182F6; }
+.dc-tut-art { position: relative; height: 240px; margin: 4px 0 24px; border-radius: 24px; background: #F2F4F6;
+              overflow: hidden; }
+.dc-tut-title { font-size: 26px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; line-height: 1.3;
+                animation: dc-rise .4s var(--dc-ease) both; }
+.dc-tut-lead { font-size: 16px; color: #4E5968; line-height: 1.6; margin-top: 8px; word-break: keep-all;
+               animation: dc-rise .4s .06s var(--dc-ease) both; }
+.dc-dots { display: flex; gap: 6px; justify-content: center; margin-top: 28px; }
+.dc-dots i { width: 6px; height: 6px; border-radius: 3px; background: #E5E8EB; }
+.dc-dots i.on { width: 18px; background: #3182F6; animation: dc-dot .3s var(--dc-ease) both; }
+@keyframes dc-dot { from { width: 6px; } }
+@keyframes dc-pop-in { 0% { opacity: 0; transform: scale(.6); } 70% { opacity: 1; transform: scale(1.08); }
+                       100% { opacity: 1; transform: none; } }
+/* 1장: 도구 이름이 하나씩 나올 때마다 가운데 그림이 그 도구로 바뀐다(회전하며 커짐). 이름표 줄은 가운데 정렬이라
+   새 이름표의 자리가 0에서 넓어지면서 앞의 것들을 왼쪽으로 민다 */
+.dc-tool { position: absolute; top: 34px; left: 50%; width: 96px; height: 96px; margin-left: -48px; fill: none;
+           stroke: #3182F6; stroke-width: 3.8; stroke-linecap: round; stroke-linejoin: round; opacity: 0;
+           animation: dc-tool-in .45s var(--dc-spring) var(--d) both,
+                      dc-tool-out .2s var(--dc-ease) calc(var(--d) + .68s) forwards; }
+.dc-tool.last { animation: dc-tool-in .5s var(--dc-spring) var(--d) both; }
+@keyframes dc-tool-in { from { opacity: 0; transform: scale(.3) rotate(-25deg); } to { opacity: 1; transform: none; } }
+@keyframes dc-tool-out { to { opacity: 0; transform: scale(.6) translateY(-12px); } }
+.dc-tool-names { position: absolute; left: 0; right: 0; bottom: 28px; display: flex; justify-content: center; }
+.dc-tool-slot { display: flex; justify-content: center; max-width: 0; animation: dc-slot .45s var(--dc-ease) var(--d) both; }
+.dc-tool-slot + .dc-tool-slot { animation-name: dc-slot-next; }
+@keyframes dc-slot { from { max-width: 0; } to { max-width: 140px; } }
+@keyframes dc-slot-next { from { max-width: 0; margin-left: 0; } to { max-width: 140px; margin-left: 6px; } }
+.dc-tool-name { display: flex; align-items: center; white-space: nowrap; padding: 6px 11px; border-radius: 12px;
+                font-size: 14px; font-weight: 600;
+                animation: dc-pop-in .45s var(--dc-spring) calc(var(--d) + .06s) both, dc-name-on .75s linear var(--d) both; }
+@keyframes dc-name-on { from, 85% { background: #3182F6; color: #FFFFFF; } to { background: #FFFFFF; color: #2A2A2A; } }
+.dc-tool-check { width: 0; overflow: hidden; opacity: 0; color: #3182F6;
+                 animation: dc-check-in .3s var(--dc-ease) calc(var(--d) + .7s) both; }
+@keyframes dc-check-in { from { width: 0; opacity: 0; } to { width: 16px; opacity: 1; } }
+/* 2장: 축척 용지 위 가루를 선이 훑고 지나가면 알갱이마다 파란 테두리가 생기고, 대표 크기가 튀어나온다 */
+.dc-tut-paper { position: absolute; inset: 22px 32px; border-radius: 10px; background: #FFFFFF;
+                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
+.dc-tut-paper b { position: absolute; width: 12px; height: 12px; background: #2A2A2A; }
+.dc-grain { position: absolute; border-radius: 45%; background: #4A3426; animation: dc-ring .3s ease-out both; }
+@keyframes dc-ring { from { box-shadow: 0 0 0 0 rgba(49, 130, 246, 0); } to { box-shadow: 0 0 0 2px #3182F6; } }
+.dc-scan { position: absolute; top: 0; bottom: 0; width: 2px; background: #3182F6; box-shadow: 0 0 12px #3182F6;
+           animation: dc-scan 1.6s .3s var(--dc-ease) both; }
+@keyframes dc-scan { from { left: 0; opacity: 1; } 90% { opacity: 1; } to { left: 100%; opacity: 0; } }
+.dc-tut-size { position: absolute; right: 12px; bottom: 12px; padding: 4px 12px; border-radius: 100px;
+               background: #3182F6; color: #FFFFFF; font-size: 14px; font-weight: 700;
+               animation: dc-pop-in .45s var(--dc-spring) 2s both; }
+/* 3장: 붓기 시간표 위를 물방울이 지나가며, 지나간 붓기 막대가 차례로 진해진다 */
+.dc-tut-track { position: absolute; left: 32px; right: 32px; top: 120px; height: 12px; border-radius: 6px;
+                background: #FFFFFF; }
+.dc-tut-pour { position: absolute; top: 0; bottom: 0; border-radius: 6px; background: #3182F6;
+               animation: dc-poured .3s var(--dc-ease) var(--d) both; }
+@keyframes dc-poured { from { opacity: .3; } to { opacity: 1; } }
+.dc-tut-time { position: absolute; top: 22px; font-size: 13px; font-weight: 600; color: #8B95A1; white-space: nowrap; }
+.dc-tut-head { position: absolute; top: -10px; width: 3px; height: 32px; margin-left: -1px; border-radius: 2px;
+               background: #2A2A2A; animation: dc-play 3.2s .3s linear both; }
+.dc-tut-drop { position: absolute; top: -78px; margin-left: -22px; font-family: "Material Symbols Rounded";
+               font-size: 44px; line-height: 1; color: #3182F6; font-variation-settings: "FILL" 1;
+               animation: dc-play 3.2s .3s linear both, dc-tilt .8s .3s ease-in-out 4 alternate; }
+@keyframes dc-play { from { left: 0; } to { left: 100%; } }
+@keyframes dc-tilt { from { rotate: 0deg; } to { rotate: -18deg; } }
+.dc-tut-note { position: absolute; left: 0; right: 0; bottom: 20px; text-align: center; font-size: 14px; color: #4E5968; }
+/* 4장: 맛 육각형이 커지고, 다음 잔이 어떻게 바뀌는지 한 줄이 올라온다 */
+.dc-tut-hex { position: absolute; top: 12px; left: 50%; width: 170px; height: 158px; margin-left: -85px; }
+.dc-tut-shape { transform-origin: 75px 70px; animation: dc-hex-grow .7s .2s var(--dc-spring) both; }
+@keyframes dc-hex-grow { from { transform: scale(0); } to { transform: none; } }
+.dc-tut-change { position: absolute; left: 16px; right: 16px; bottom: 14px; display: flex; align-items: center; gap: 8px;
+                 padding: 10px 14px; border-radius: 16px; background: #FFFFFF; font-size: 14px; color: #4E5968;
+                 animation: dc-rise .45s 1.1s var(--dc-spring) both; }
+.dc-tut-change .dc-icon { width: 28px; height: 28px; font-size: 16px; margin: 0; }
+.dc-tut-change b { color: #2A2A2A; }
+
 /* 위에서 내려오는 알림 (토스 디자인 시스템 Toast: 흰 알약 모양, 옅은 그림자, 15px 굵은 글자, 왼쪽 아이콘,
    위쪽 알림은 48px 위에서 내려오고 3초 뒤 사라짐). 알림 자리는 화면 흐름 밖에 고정해 내용을 밀지 않는다 */
 .st-key-dc-toasts { position: fixed; top: 0; left: 0; right: 0; height: 0; z-index: 1000100; pointer-events: none; }
@@ -300,6 +373,8 @@ STYLE = """
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
   .dc-toast { transform: translateX(-50%); animation: dc-toast-still 3.4s steps(1, end) both !important; }
+  .dc-tool.last, .dc-tool-check { opacity: 1; } .dc-tool-check { width: 16px; } .dc-tool-name { background: #FFFFFF; }
+  .dc-tool-slot { max-width: none; } .dc-tool-slot + .dc-tool-slot { margin-left: 6px; }
 }
 @media (max-width: 640px) { .dc-cards, .dc-cards.three { grid-template-columns: 1fr; } .dc-value { font-size: 40px; } }
 </style>
@@ -1961,10 +2036,12 @@ def flow_page():
 
 
 def open_page(page):
-    """화면을 바꾼다. 한 잔 내리기는 늘 1단계부터 시작한다."""
+    """화면을 바꾼다. 한 잔 내리기는 늘 1단계부터, 사용법은 첫 장부터 시작한다."""
     st.session_state["page"] = page
     if page == "flow":
         st.session_state["flow"] = {"step": 1}
+    elif page == "tutorial":
+        st.session_state["tutorial"] = 0
 
 
 def back_link(name):
@@ -2017,6 +2094,7 @@ def home_page():
          '<div class="dc-eyebrow">Drip Coffee</div><div class="dc-hero">오늘의 한 잔</div>'
          '<div class="dc-lead">원두와 장비만 알려 주면 레시피부터 기록까지 안내해요.<br>'
          "맛을 매길수록 다음 잔이 내 입맛에 가까워져요.</div></div>")
+    st.button("처음이세요? 사용법 보기 ›", type="tertiary", key="home-tutorial", on_click=open_page, args=("tutorial",))
     brews = cal.load_brews(BREWS_PATH)
     with st.container(key="home-list"):
         if brews:
@@ -2033,7 +2111,117 @@ def home_page():
                  "내 기록 보기", open_page, ("history",))
     st.button("모델 점검 (검증용)", type="tertiary", width="stretch", key="home-check", on_click=open_page, args=("check",))
     with st.container(key="home-cta"):  # 화면 아래에 붙는 버튼 (한 잔 내리기의 아래 버튼과 같은 모양)
-        st.button("시작하기", type="primary", width="stretch", key="home-start", on_click=open_page, args=("flow",))
+        # 기록이 하나도 없으면 사용법부터 보여 준다
+        st.button("시작하기", type="primary", width="stretch", key="home-start", on_click=open_page,
+                  args=("flow" if brews else "tutorial",))
+
+
+# 사용법 1장의 도구 그림 (선으로 직접 그림, 88×88). 이름 → SVG 안쪽
+TOOL_ICONS = (
+    ("원두", '<g transform="rotate(-30 44 44)"><ellipse cx="44" cy="44" rx="17" ry="25"/>'
+             '<path d="M44 19 C 34 33, 54 55, 44 69"/></g>'),
+    ("드리퍼", '<path d="M16 23 H70 L54 55 H32 Z"/><path d="M25 65 H61"/><path d="M36 55 V65 M50 55 V65"/>'
+              '<path d="M70 25 C 83 28, 83 43, 63 41"/>'),
+    ("필터", '<path d="M14 23 Q44 12 74 23 L49 69 H39 Z"/><path d="M22 23.5 L40 68" stroke-width="2.4" opacity=".55"/>'),
+    ("그라인더", '<rect x="29" y="37" width="30" height="35" rx="6"/><path d="M25 37 H63"/><path d="M44 37 V22 H67"/>'
+                f'<circle cx="69" cy="22" r="4.5" fill="{BRAND}"/>'),
+)
+TOOL_DONE = (f'<circle cx="44" cy="44" r="28" fill="{BRAND}" stroke="none"/>'
+             '<path d="M31 44 L40 53 L58 35" stroke="#FFFFFF" stroke-width="5"/>')
+TOOL_START_S, TOOL_STEP_S = 0.3, 0.75  # 첫 도구가 나오는 때, 다음 도구까지 간격(초)
+
+
+def tutorial_tools():
+    """1장: 원두 → 드리퍼 → 필터 → 그라인더가 차례로 나오고 완료 표시로 끝난다."""
+    delays = [TOOL_START_S + i * TOOL_STEP_S for i in range(len(TOOL_ICONS) + 1)]
+    icons = "".join(f'<svg class="dc-tool" style="--d:{d:.2f}s" viewBox="0 0 88 88">{svg}</svg>'
+                    for d, (_, svg) in zip(delays, TOOL_ICONS))
+    done = f'<svg class="dc-tool last" style="--d:{delays[-1]:.2f}s" viewBox="0 0 88 88">{TOOL_DONE}</svg>'
+    names = "".join(f'<span class="dc-tool-slot" style="--d:{d:.2f}s"><span class="dc-tool-name">'
+                    f'<span class="dc-tool-check">✓</span>{name}</span></span>' for d, (name, _) in zip(delays, TOOL_ICONS))
+    return icons + done + f'<div class="dc-tool-names">{names}</div>'
+
+
+# 2장의 가루 알갱이: (가로 %, 세로 %, 지름 px)
+TUTORIAL_GRAINS = [(8, 20, 9), (18, 62, 7), (27, 35, 11), (33, 75, 8), (41, 18, 7), (47, 52, 10), (55, 30, 8), (60, 70, 9),
+                   (68, 45, 7), (74, 15, 10), (80, 62, 8), (87, 35, 9), (13, 45, 6), (38, 48, 5), (64, 22, 6), (91, 72, 6)]
+
+
+def tutorial_photo():
+    """2장: 선이 왼쪽에서 오른쪽으로 훑으면 지나간 알갱이에 테두리가 생긴다(선이 지나가는 때에 맞춰 늦게 시작).
+    네 모서리의 검은 네모는 실제 축척 용지의 표시처럼."""
+    corners = "".join(f'<b style="{v}:8px;{h}:8px"></b>' for v in ("top", "bottom") for h in ("left", "right"))
+    grains = "".join(f'<span class="dc-grain" style="left:{x}%;top:{y}%;width:{d}px;height:{d * 0.85:.1f}px;'
+                     f'animation-delay:{0.3 + x / 100 * 1.45:.2f}s"></span>' for x, y, d in TUTORIAL_GRAINS)
+    return (f'<div class="dc-tut-paper">{corners}{grains}<span class="dc-scan"></span>'
+            '<span class="dc-tut-size">대표 크기 1090 µm</span></div>')
+
+
+def tutorial_pours():
+    """3장: 물방울이 시간표를 3.2초에 지나가고, 지나간 붓기 막대가 진해진다."""
+    pours = "".join(f'<span class="dc-tut-pour" style="left:{x}%;width:{w}%;--d:{0.3 + 3.2 * x / 100:.2f}s"></span>'
+                    f'<span class="dc-tut-time" style="left:{x}%">{t}</span>'
+                    for x, w, t in [(0, 9, "0:00 뜸"), (30, 12, "0:45"), (60, 12, "1:30")])
+    return (f'<div class="dc-tut-track">{pours}<span class="dc-tut-head"></span>'
+            '<span class="dc-tut-drop">water_drop</span></div><div class="dc-tut-note">물 빠짐까지 예측 2:32</div>')
+
+
+def tutorial_taste():
+    """4장: 맛 육각형이 커지고 '다음 잔 가수 125 → 139 g'이 올라온다."""
+    def at(i, r):
+        angle = math.radians(-90 + 60 * i)
+        return f"{75 + r * math.cos(angle):.1f},{70 + r * math.sin(angle):.1f}"
+
+    grid = "".join(f'<polygon points="{" ".join(at(i, 58 * k) for i in range(6))}" fill="none" stroke="#E5E8EB"/>'
+                   for k in (1, 0.66, 0.33))
+    shape = " ".join(at(i, 58 * v) for i, v in enumerate([0.8, 0.7, 0.35, 0.55, 0.85, 0.75]))
+    return (f'<svg class="dc-tut-hex" viewBox="0 0 150 140">{grid}<polygon class="dc-tut-shape" points="{shape}" '
+            f'fill="{BRAND}" fill-opacity="0.2" stroke="{BRAND}" stroke-width="2" stroke-linejoin="round"/></svg>'
+            '<div class="dc-tut-change"><span class="dc-icon">water_full</span><span style="flex:1">다음 잔 가수</span>'
+            '125 → <b>139 g</b><span class="dc-pill">+14 g</span></div>')
+
+
+# 사용법 네 장: (제목, 설명, 그림)
+TUTORIAL = (
+    ("원두와 장비를 골라요", "봉투에 적힌 원두 이름과 로스팅 날짜면 충분해요. 드리퍼·필터·그라인더는 목록에서 골라요.",
+     tutorial_tools),
+    ("간 가루를 사진 한 장으로 재요", "가루를 축척 용지에 펴서 찍으면 알갱이 크기를 재서, 레시피를 내 가루에 맞춰요.",
+     tutorial_photo),
+    ("안내대로 부어요", "언제, 얼마나 부을지 시간표로 보여 줘요. 저울과 타이머만 보면서 따라 하면 돼요.", tutorial_pours),
+    ("맛을 매기면 다음 잔이 맞춰져요", "Aroma·Flavor 같은 맛 6가지를 매기고 진하기를 고르면, 다음 잔의 물과 분쇄가 "
+     "내 입맛 쪽으로 바뀌어요.", tutorial_taste),
+)
+
+
+def tutorial_next():
+    page = st.session_state.get("tutorial", 0)
+    if page >= len(TUTORIAL) - 1:
+        open_page("flow")
+    else:
+        st.session_state["tutorial"] = page + 1
+
+
+def tutorial_page():
+    """사용법: 한 잔 내리기의 흐름을 네 장의 움직이는 그림으로 보여 준다(토스 온보딩처럼). 기록이 하나도 없을 때
+    '시작하기'를 누르면 먼저 나오고, 시작 화면의 '사용법 보기'로 언제든 다시 볼 수 있다."""
+    back_link("tutorial")
+    page = min(st.session_state.setdefault("tutorial", 0), len(TUTORIAL) - 1)
+    title, lead, art = TUTORIAL[page]
+    dots = "".join(f'<i class="{"on" if i == page else ""}"></i>' for i in range(len(TUTORIAL)))
+    with st.container(key=f"tutorial-{page}"):  # 장이 바뀌면 새로 그려져 그림이 처음부터 움직인다
+        # 그림에 SVG가 있어서 st.html이 아니라 markdown으로 넣는다
+        st.markdown(f'<div class="dc-tut-art" aria-hidden="true">{art()}</div>', unsafe_allow_html=True)
+        html(f'<div class="dc-eyebrow">{page + 1} / {len(TUTORIAL)}</div><div class="dc-tut-title">{escape(title)}</div>'
+             f'<div class="dc-tut-lead">{escape(lead)}</div><div class="dc-dots">{dots}</div>')
+    last = page == len(TUTORIAL) - 1
+    with st.container(key="flow-cta"):  # 한 잔 내리기와 같은 아래 버튼 자리
+        if last:
+            right = st.container()
+        else:
+            left, right = st.columns([1, 2])
+            left.button("건너뛰기", width="stretch", key="tutorial-skip", on_click=open_page, args=("flow",))
+        right.button("시작하기" if last else "다음", type="primary", width="stretch", key="tutorial-next",
+                     on_click=tutorial_next)
 
 
 def history_page():
@@ -2068,5 +2256,6 @@ def check_page():
 st.set_page_config(page_title="Drip Coffee", layout="wide")
 html(STYLE)
 TOASTS = st.container(key="dc-toasts")  # 위에서 내려오는 알림 자리 (toast)
-PAGES = {"home": home_page, "flow": flow_page, "history": history_page, "check": check_page}
+PAGES = {"home": home_page, "flow": flow_page, "tutorial": tutorial_page, "history": history_page,
+         "check": check_page}
 PAGES[st.session_state.setdefault("page", "home")]()

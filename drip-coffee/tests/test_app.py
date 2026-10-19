@@ -63,6 +63,13 @@ def test_first_time_user_with_no_beans_or_records(monkeypatch, empty_files):
     at = start(monkeypatch, *empty_files)
     assert not at.exception and not has_text(at, "같은 원두로 내리기") and has_text(at, "아직 없어요")
     button(at, "home-start").click().run()
+    # 기록이 하나도 없으면 사용법 네 장부터 보여 주고, 마지막 장의 '시작하기'로 1단계에 간다
+    assert not at.exception and has_text(at, "1 / 4") and has_text(at, "원두와 장비를 골라요")
+    for page in range(2, 5):
+        button(at, "tutorial-next").click().run()
+        assert not at.exception and has_text(at, f"{page} / 4")
+    assert button(at, "tutorial-next").label == "시작하기" and not any(b.key == "tutorial-skip" for b in at.button)
+    button(at, "tutorial-next").click().run()
     assert has_text(at, "아직 원두가 없어요") and button(at, "flow-add-first-bean")
     for page in ("history", "check"):
         button(at, "flow-home" if page == "history" else f"history-home").click().run()
@@ -91,6 +98,19 @@ def test_same_bean_row_fills_the_last_bean_but_not_the_filter(monkeypatch, my_fi
     assert at.selectbox(key="flow-bean").value == brews[-1].bean_id
     assert at.number_input(key="flow-dose").value == brews[-1].dose_g
     assert at.selectbox(key="flow-filter").value is None
+
+
+def test_tutorial_can_be_opened_from_home_and_skipped(monkeypatch, my_files):
+    # 기록이 있으면 '시작하기'는 바로 1단계로 가고, 사용법은 '사용법 보기'로 언제든 볼 수 있다
+    at = start(monkeypatch, *my_files)
+    button(at, "home-tutorial").click().run()
+    assert not at.exception and has_text(at, "1 / 4")
+    assert any("dc-tool" in e.proto.body for e in at.markdown)  # 움직이는 도구 그림 (SVG라서 markdown)
+    button(at, "tutorial-skip").click().run()
+    assert not at.exception and has_text(at, "1 / 6 단계")
+    button(at, "flow-home").click().run()
+    button(at, "home-start").click().run()
+    assert has_text(at, "1 / 6 단계")
 
 
 def test_bean_starts_blank_and_must_be_chosen(monkeypatch, my_files):
