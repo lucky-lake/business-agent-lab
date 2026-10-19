@@ -157,9 +157,23 @@ STYLE = """
 .st-key-flow-cta [class*="st-key-flow-next"], .st-key-flow-cta .st-key-flow-save,
 .st-key-flow-cta .st-key-flow-finish-home, .st-key-home-start { animation: dc-cta-in .35s var(--dc-spring) both; }
 @keyframes dc-cta-in { from { opacity: 0; transform: translateY(32px); } to { opacity: 1; transform: none; } }
-.dc-cta-hint { min-height: 56px; display: flex; align-items: center; justify-content: center; padding: 0 16px;
-               border-radius: 16px; background: #F2F4F6; color: #8B95A1; font-size: 15px; font-weight: 600;
-               text-align: center; line-height: 1.4; animation: dc-rise .3s var(--dc-ease) both; }
+/* 아직 갈 수 없을 때의 흐린 안내(cta_hint). 누르면 좌우로 흔들리고 글자가 잠깐 빨개진다 */
+.st-key-flow-cta [class*="st-key-cta-hint-"] { animation: dc-rise .3s var(--dc-ease) both; }
+.st-key-flow-cta [class*="st-key-cta-hint-"] button { min-height: 56px; padding: 0 16px; border: none;
+                                                      border-radius: 16px; background: #F2F4F6; color: #8B95A1;
+                                                      cursor: default; }
+.st-key-flow-cta [class*="st-key-cta-hint-"] button:hover,
+.st-key-flow-cta [class*="st-key-cta-hint-"] button:focus:not(:active) {
+  border: none; background: #F2F4F6; color: #8B95A1; }
+.st-key-flow-cta [class*="st-key-cta-hint-"] button p { font-size: 15px; font-weight: 600; line-height: 1.4; }
+.st-key-flow-cta [class*="st-key-cta-hint-a-"] button { animation: dc-shake-a .42s var(--dc-ease) both; }
+.st-key-flow-cta [class*="st-key-cta-hint-b-"] button { animation: dc-shake-b .42s var(--dc-ease) both; }
+@keyframes dc-shake-a { 0%, 100% { transform: none; } 15% { transform: translateX(-9px); color: #F04452; }
+                        35% { transform: translateX(8px); } 55% { transform: translateX(-5px); }
+                        75% { transform: translateX(3px); color: #F04452; } }
+@keyframes dc-shake-b { 0%, 100% { transform: none; } 15% { transform: translateX(-9px); color: #F04452; }
+                        35% { transform: translateX(8px); } 55% { transform: translateX(-5px); }
+                        75% { transform: translateX(3px); color: #F04452; } }
 
 /* 아이콘 요약 카드: 숫자 여러 개를 회색 판 위 흰 칸으로 한 번에 보여 준다 (토스 자산 목록처럼). 아이콘은 Streamlit에
    들어 있는 Material Symbols 글꼴이라 인터넷 없이도 보인다. 2×2로 두고, 넓은 화면에서만 한 줄 4칸(3+1로 깨지지 않게) */
@@ -1323,8 +1337,9 @@ FLOW_CTA = None  # 한 잔 내리기 화면 아래에 붙는 버튼 자리. flow
 def bottom_cta(label, key, ready=True, hint="", back_to=None, back_key=None):
     """토스 디자인 시스템의 BottomCTA처럼 화면 아래에 붙은 버튼. 눌렀으면 True.
 
-    ready가 아니면 버튼 대신, 무엇을 채우면 다음으로 갈 수 있는지(hint)를 같은 자리에 흐리게 보여 준다. 다 채우면
-    버튼이 아래에서 튀어 올라온다(STYLE). back_to가 있으면 왼쪽에 '이전' 버튼을 둔다.
+    ready가 아니면 버튼 대신, 무엇을 채우면 다음으로 갈 수 있는지(hint)를 같은 자리에 흐리게 보여 준다. 그 자리를
+    누르면 좌우로 흔들려 아직 갈 수 없다고 알린다(cta_hint). 다 채우면 버튼이 아래에서 튀어 올라온다(STYLE).
+    back_to가 있으면 왼쪽에 '이전' 버튼을 둔다.
     단계 화면은 나타날 때 움직이므로(transform), 그 안에 두면 고정 위치가 흔들려서 단계 화면 밖의 자리에 그린다.
     """
     with FLOW_CTA:
@@ -1335,9 +1350,23 @@ def bottom_cta(label, key, ready=True, hint="", back_to=None, back_key=None):
         else:
             right = st.container()
         if not ready:
-            right.html(f'<div class="dc-cta-hint">{escape(hint)}</div>')
+            with right:
+                cta_hint(hint, key)
             return False
         return right.button(label, type="primary", width="stretch", key=key)
+
+
+def tap_hint(taps_key):
+    st.session_state[taps_key] = st.session_state.get(taps_key, 0) + 1
+
+
+def cta_hint(hint, key):
+    """아직 갈 수 없을 때 버튼 자리에 두는 흐린 안내. 누르면 좌우로 흔들린다(iOS·토스의 '안 돼요' 흔들림).
+    애니메이션은 화면 요소가 바뀌어야 다시 재생되므로, 누를 때마다 상자 이름(key)을 a, b로 번갈아 바꾼다."""
+    taps = st.session_state.get(f"{key}-taps", 0)
+    state = "still" if not taps else "ab"[taps % 2]
+    with st.container(key=f"cta-hint-{state}-{key}"):
+        st.button(hint, key=f"{key}-hint", width="stretch", on_click=tap_hint, args=(f"{key}-taps",))
 
 
 def go_to(step):

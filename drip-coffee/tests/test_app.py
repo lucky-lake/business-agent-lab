@@ -25,6 +25,11 @@ def button(at, key):
     return next(b for b in at.button if b.key == key)
 
 
+def hint(at, key):
+    """다음 버튼 대신 놓인 흐린 안내(누르면 흔들림)의 글."""
+    return button(at, f"{key}-hint").label
+
+
 def start(monkeypatch, brews, beans, equipment=None):
     monkeypatch.setenv("DRIP_COFFEE_BREWS", str(brews))
     monkeypatch.setenv("DRIP_COFFEE_BEANS", str(beans))
@@ -98,7 +103,10 @@ def test_bean_starts_blank_and_must_be_chosen(monkeypatch, my_files):
     assert at.selectbox(key="flow-filter").options == ["하리오 화이트", "홀츠클로츠 무표백"]  # 목록에서만 고른다
     assert not has_text(at, "로스팅")  # 원두를 고르기 전에는 디게싱 안내가 없다
     # 다 고르기 전에는 다음 버튼 대신 무엇을 고르면 되는지 보여 준다 (다 고르면 버튼이 아래에서 올라온다)
-    assert not any(b.key == "flow-next-1" for b in at.button) and has_text(at, "원두·드리퍼·필터·그라인더를 고르면")
+    assert not any(b.key == "flow-next-1" for b in at.button) and hint(at, "flow-next-1").startswith("원두·드리퍼·필터·그라인더를")
+    # 그 안내를 누르면 넘어가지 않고 흔들리기만 한다 (누를 때마다 a, b로 번갈아 바뀌어 다시 흔들린다)
+    button(at, "flow-next-1-hint").click().run()
+    assert at.session_state["flow"]["step"] == 1 and at.session_state["flow-next-1-taps"] == 1
     at.selectbox(key="flow-bean").set_value("B02").run()
     assert has_text(at, "디게싱") or has_text(at, "마시기 좋은 때")
     at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백").run()
@@ -132,7 +140,7 @@ def test_brew_step_compares_the_result_with_the_prediction(monkeypatch, my_files
     button(at, "flow-next-2").click().run()
     button(at, "flow-skip-3").click().run()
     assert has_text(at, "붓기 일정") and has_text(at, "0:00") and has_text(at, "끊김 예상")  # 붓기 타임라인
-    assert not any(b.key == "flow-next-4" for b in at.button) and has_text(at, "끊긴 시각과 음료 무게를 적으면")
+    assert not any(b.key == "flow-next-4" for b in at.button) and hint(at, "flow-next-4").startswith("끊긴 시각과 음료 무게를")
     at.text_input(key="flow-drawdown").set_value("2:3x").run()
     # 잘못 적으면 위에서 내려오는 알림으로 적는 법을 알려 준다
     assert any("dc-toast" in e.proto.body and "2:42(분:초)" in e.proto.body for e in at.get("html"))
@@ -163,11 +171,11 @@ def test_taste_step_needs_all_scores_and_strength_then_saves_the_cup(monkeypatch
     flow = dict(at.session_state["flow"])
     flow["measured_d50_um"] = 1150.0  # 사진으로 잰 것처럼 (AppTest는 사진 올리기를 흉내 내지 못한다)
     at.session_state["flow"] = flow
-    assert not any(b.key == "flow-save" for b in at.button) and has_text(at, "맛 6항목을 모두 매기면")
+    assert not any(b.key == "flow-save" for b in at.button) and hint(at, "flow-save").startswith("맛 6항목을 모두")
     for name, value in (("aroma", 3.5), ("flavor", 3.0), ("acidity", 1.5), ("body", 3.0), ("balance", 3.5),
                         ("aftertaste", 3.5)):
         at.select_slider(key=f"flow-taste-{name}").set_value(value).run()
-    assert not any(b.key == "flow-save" for b in at.button) and has_text(at, "진하기를 고르면")
+    assert not any(b.key == "flow-save" for b in at.button) and hint(at, "flow-save").startswith("진하기를")
     next(w for w in at.get("button_group") if w.key == "flow-strength").set_value("진했어요").run()
     button(at, "flow-save").click().run()
     assert not at.exception and at.session_state["flow"]["step"] == 6
