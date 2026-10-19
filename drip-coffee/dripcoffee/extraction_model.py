@@ -61,11 +61,11 @@ class ModelParams:
     """모델 상수. 값과 근거, 상태(미확인/가정/보정)는 docs/MODEL.md 4절 표와 같다."""
 
     # 물 흐름 (노트1)
-    flow_resistance_ref: float = 1.17e12  # R_ref (m⁻³): 대표 크기 1000 µm, 원두 20 g 기준. 보정 계수 1. 시작값은 첫 B02 기록(96 °C, 2:20, 1200 µm로 가정)에 맞춤 (10/19 구멍을 넣은 모양으로 다시 맞춤)
+    flow_resistance_ref: float = 1.08e12  # R_ref (m⁻³): 대표 크기 1000 µm, 원두 20 g 기준. 보정 계수 1. 기록 7잔의 물 빠짐 종료 시각에 맞춤 (10/19 보정 3, MODEL.md 5절)
     resistance_d_ref_um: float = 1000.0
-    resistance_size_exponent: float = 2.0  # 흐름 저항 ∝ (d_ref/d)^n. 코제니–카르만 식은 n = 2 (보정에서 n을 바꿔 비교)
+    resistance_size_exponent: float = 2.0  # 흐름 저항 ∝ (d_ref/d)^n. 코제니–카르만 식은 n = 2 (보정 3에서 미리 정한 규칙대로 유지)
     resistance_dose_ref_g: float = 20.0
-    held_liquid_ratio: float = 2.1  # R_abs (g/g): 가루가 머금는 액체. 보정 계수 2 (노트3 M2)
+    held_liquid_ratio: float = 2.29  # R_abs (g/g): 가루가 머금는 액체. 보정 계수 2. 기록 7잔의 음료 무게에 맞춤 (시작값 2.1, 노트3 M2)
     cone_half_angle_deg: float = 29.6  # V60 02 원뿔 반각: 제조사 규격(구경 116 mm, 높이 102 mm)에서 atan(58/102)
     outlet_diameter_mm: float = 20.0  # 드리퍼 바닥 구멍 지름 (자로 잰 대략값). 물 높이는 이 구멍에서 잰다
     bulk_density_g_per_ml: float = 0.35  # 마른 가루 부피 밀도 (가정 → 측정 예정)

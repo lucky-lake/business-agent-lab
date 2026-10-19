@@ -133,6 +133,7 @@ def ea_effect(params, ea_values=(17.3e3, 25e3, 35e3)):
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")
     brews = cal.load_brews()
     ids = usable_ids(brews)
     start = em.DEFAULT_PARAMS
