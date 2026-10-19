@@ -154,11 +154,13 @@ STYLE = """
                                                           background: #F2F4F6; color: #4E5968; }
 .st-key-flow-cta [data-testid="stBaseButton-secondary"] p,
 .st-key-flow-cta [data-testid="stBaseButton-primary"] p { font-size: 17px; font-weight: 600; }
-.st-key-flow-cta [class*="st-key-flow-next"], .st-key-flow-cta .st-key-flow-save,
+.st-key-flow-cta [class*="st-key-flow-next"]:not([class*="-hint"]), .st-key-flow-cta .st-key-flow-save,
 .st-key-flow-cta .st-key-flow-finish-home, .st-key-home-start { animation: dc-cta-in .35s var(--dc-spring) both; }
 @keyframes dc-cta-in { from { opacity: 0; transform: translateY(32px); } to { opacity: 1; transform: none; } }
-/* 아직 갈 수 없을 때의 흐린 안내(cta_hint). 누르면 좌우로 흔들리고 글자가 잠깐 빨개진다 */
-.st-key-flow-cta [class*="st-key-cta-hint-"] { animation: dc-rise .3s var(--dc-ease) both; }
+/* 아직 갈 수 없을 때의 흐린 안내(cta_hint). 누르면 좌우로 흔들리고 글자가 잠깐 빨개진다. 누를 때마다 상자가 새로
+   그려지므로, 아래에서 올라오는 움직임은 처음 나타날 때(still)만 주고 다음 버튼의 튀어 오르기에서도 뺀다
+   (누를 때마다 다시 올라오면 위아래로도 흔들려 보인다) */
+.st-key-flow-cta [class*="st-key-cta-hint-still-"] { animation: dc-rise .3s var(--dc-ease) both; }
 .st-key-flow-cta [class*="st-key-cta-hint-"] button { min-height: 56px; padding: 0 16px; border: none;
                                                       border-radius: 16px; background: #F2F4F6; color: #8B95A1;
                                                       cursor: default; }
