@@ -102,7 +102,7 @@ def test_pooled_grind_size_averages_the_same_bag_and_clicks(tmp_path):
     # B01 95클릭에 표시 없는 잔을 하나 더 넣으면 20261016-3과 평균을 낸다.
     path = tmp_path / "brews.csv"
     shutil.copy(DATA_DIR / "brews.csv", path)
-    cal.append_brew({"brew_id": "20261020-1", "date": "2026-10-20", "bean_id": "B01", "roast_date": "2026-09-28",
+    cal.append_brew({"brew_id": "20261231-1", "date": "2026-12-31", "bean_id": "B01", "roast_date": "2026-09-28",
                      "filter": "하리오 화이트", "grinder": "메버릭1", "grinder_clicks": 95, "grind_d50_um": 1200,
                      "dose_g": 20, "water_temp_c": 82, "pours": "0:40;60:80;120:40"}, path)
     brews = cal.load_brews(path)

@@ -48,11 +48,11 @@ def test_a_logged_cup_becomes_the_next_hint(tmp_path):
     path = tmp_path / "brews.csv"
     shutil.copy(DATA_DIR / "brews.csv", path)
     assert cal.click_hint(910, "메버릭1", "B07", "2026-10-14", cal.load_brews(path)).source == "클릭표"
-    cal.append_brew({"brew_id": "20261020-1", "date": "2026-10-20", "bean_id": "B07", "roast_date": "2026-10-14",
+    cal.append_brew({"brew_id": "20261231-1", "date": "2026-12-31", "bean_id": "B07", "roast_date": "2026-10-14",
                      "filter": "홀츠클로츠 무표백", "grinder": "메버릭1", "grinder_clicks": 86, "grind_d50_um": 980,
                      "dose_g": 20, "water_temp_c": 87, "pours": "0:40;60:80;120:40"}, path)
     hint = cal.click_hint(950, "메버릭1", "B07", "2026-10-14", cal.load_brews(path))
-    assert hint.source == "내 기록" and hint.near.brew_id == "20261020-1"
+    assert hint.source == "내 기록" and hint.near.brew_id == "20261231-1"
 
 
 def test_size_change_per_click_comes_from_one_bag_at_several_clicks(brews):

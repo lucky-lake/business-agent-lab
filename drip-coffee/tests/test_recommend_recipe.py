@@ -126,7 +126,8 @@ def test_unreachable_target_is_refused_with_reasons(brews, beans):
 
 def test_new_bean_starts_from_the_recipe_of_its_roast_group(brews):
     # 기록이 없는 원두는 같은 배전도 묶음의 마지막 잔에서 출발한다: 중강배전 이상은 B01 방식(2-4-2 / 60초),
-    # 라이트~미디엄은 B02 방식(2-3-3-3 / 30초)
+    # 라이트~미디엄은 B02 방식(2-3-3-3 / 30초). 묶음의 마지막 잔이 바뀌어도 규칙만 보도록 10/19까지의 기록으로 본다
+    brews = [b for b in brews if b.date <= "2026-10-19"]
     dark = rec.usual_recipe({"bean_id": "새 강배전", "roast_level": "강배전"}, brews)
     medium_dark = rec.usual_recipe({"bean_id": "새 중강배전", "roast_level": "미디움 다크"}, brews)
     medium = rec.usual_recipe({"bean_id": "새 미디엄", "roast_level": "미디엄"}, brews)
