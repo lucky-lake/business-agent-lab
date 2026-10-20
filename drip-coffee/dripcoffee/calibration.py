@@ -10,6 +10,7 @@ from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from datetime import date
+from statistics import median
 
 from dripcoffee import DATA_DIR
 from dripcoffee.extraction_model import (DEFAULT_PARAMS, Prediction, Recipe, RecipeError, grind_from_d50, parse_pours,
@@ -197,13 +198,47 @@ class ClickHint:
     um_per_click: float | None = None  # 내 기록에서 구한 1클릭당 크기 변화
 
 
-def table_clicks(target_d50_um, grinder):
-    """인터넷 클릭표에서 목표 크기에 해당하는 클릭. 표가 없는 그라인더면 None. 표 밖이면 가장 가까운 끝."""
+CLICK_RATIO_MIN_CUPS = 3  # 내 사진과 클릭표의 비율은 표시 없는 잔이 이만큼 있어야 쓴다
+
+
+def _click_table(grinder):
+    """그라인더의 인터넷 클릭표 [(크기, 클릭), ...], 크기 순. 표가 없는 그라인더면 None."""
     path = next((path for name, path in CLICK_TABLES.items() if name in str(grinder)), None)
     if path is None:
         return None
     with open(path, encoding="utf-8", newline="") as f:
-        table = sorted((float(r["size_um"]), float(r["clicks"])) for r in csv.DictReader(f))
+        return sorted((float(r["size_um"]), float(r["clicks"])) for r in csv.DictReader(f))
+
+
+def table_size(clicks, grinder):
+    """인터넷 클릭표에서 클릭 수에 해당하는 크기. 표가 없거나 표 범위 밖이면 None."""
+    table = _click_table(grinder)
+    if table is None or not table[0][1] <= clicks <= table[-1][1]:
+        return None
+    for (s0, c0), (s1, c1) in zip(table, table[1:]):
+        if clicks <= c1:
+            return s0 + (s1 - s0) * (clicks - c0) / (c1 - c0)
+    return table[-1][0]
+
+
+def photo_table_ratio(brews, grinder):
+    """내 사진으로 잰 대표 크기가 같은 클릭의 인터넷 클릭표 크기보다 몇 배인지(가운데 값). 표시 없는 잔이
+    3잔 이상일 때만 쓰고, 모자라면 None.
+
+    10/20까지 사진으로 잰 잔은 모두 표보다 1.1–1.6배 굵었다. 우리 대표 크기는 무게 기준 D50이라 큰 알갱이 쪽으로
+    커지고, 그라인더마다 0클릭 위치도 달라서 표와 기준이 다르다. 원두에 따라 달라도(강배전 B01이 가장 큼) 한 방향이라,
+    가운데 값으로 목표를 나눠 표를 읽으면 클릭표대로 갈 때보다 목표에 가깝게 간다."""
+    ratios = [b.grind_d50_um / size for b in brews
+              if b.grinder == grinder and not b.flag and b.grind_d50_um and b.grinder_clicks is not None
+              and (size := table_size(b.grinder_clicks, grinder))]
+    return median(ratios) if len(ratios) >= CLICK_RATIO_MIN_CUPS else None
+
+
+def table_clicks(target_d50_um, grinder):
+    """인터넷 클릭표에서 목표 크기에 해당하는 클릭. 표가 없는 그라인더면 None. 표 밖이면 가장 가까운 끝."""
+    table = _click_table(grinder)
+    if table is None:
+        return None
     if target_d50_um <= table[0][0]:
         return round(table[0][1])
     for (s0, c0), (s1, c1) in zip(table, table[1:]):
@@ -221,8 +256,9 @@ def click_hint(target_d50_um, grinder, bean_id, roast_date, brews):
 
     - 같은 봉투를 이 그라인더로 잰 기록이 있고 목표와 60 µm 안이면, 그 잔을 기준으로 1클릭당 크기 변화만큼 옮긴다. 같은 원두라도 봉투가 바뀌면 같은 클릭에서 크기가 달라서(95클릭: 1406 → 1176 µm)
       다른 봉투 기록은 쓰지 않는다.
-    - 같은 봉투 기록이 없거나 멀면 인터넷 클릭표로 알려 준다. 사진 측정과 기준이 달라 대략이지만, 갈고 나서
-      사진으로 실제 크기를 재고 그에 맞춰 레시피를 바꾸므로(한 잔 내리기 3단계) 시작점으로는 충분하다.
+    - 같은 봉투 기록이 없거나 멀면 인터넷 클릭표로 알려 준다. 사진 측정과 기준이 달라서, 내 사진 기록이 표보다 몇 배
+      굵게 나오는지(photo_table_ratio)로 목표를 나눠 읽는다. 그래도 대략이지만, 갈고 나서 사진으로 실제 크기를 재고
+      그에 맞춰 레시피를 바꾸므로(한 잔 내리기 3단계) 시작점으로는 충분하다.
     - 그 잔을 기록하면 클릭과 사진 크기가 함께 남아, 다음에 같은 봉투를 내릴 때는 내 기록으로 알려 준다.
     - 클릭표가 없는 그라인더는 가장 가까운 내 기록에서 방향만 알려 준다.
     """
@@ -272,10 +308,12 @@ def _size_hint(target_d50_um, grinder, bean_id, roast_date, brews):
             clicks = min(max(round(near.grinder_clicks + gap), 0), 180)  # 메버릭 클릭 범위 0–180
             return ClickHint(clicks, "", "내 기록", f"같은 봉투를 {near.grinder_clicks}클릭으로 갈았을 때 "
                              f"{near.grind_d50_um:.0f} µm였어요 ({near.brew_id})", near, slope)
-    table = table_clicks(target_d50_um, grinder)
+    ratio = photo_table_ratio(brews, grinder)
+    table = table_clicks(target_d50_um / (ratio or 1.0), grinder)
     if table is not None:
-        return ClickHint(table, "", "클릭표", "인터넷 클릭표 기준이라 대략이에요. 갈고 나서 사진으로 확인해요.",
-                         None, slope)
+        why = (f"내 사진은 같은 클릭의 인터넷 클릭표보다 약 {ratio:.2f}배 굵게 나와서 그만큼 곱게 읽었어요." if ratio
+               else "인터넷 클릭표 기준이라 대략이에요.")
+        return ClickHint(table, "", "클릭표", f"{why} 갈고 나서 사진으로 확인해요.", None, slope)
     if not measured:
         return None
     near = min(measured, key=lambda b: abs(b.grind_d50_um - target_d50_um))

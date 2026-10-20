@@ -29,10 +29,24 @@ def test_other_bags_of_the_same_bean_are_not_used(brews):
 
 
 def test_click_table_is_used_without_a_close_record(brews):
-    hint = cal.click_hint(910, "메버릭1", "B07", "2026-10-14", brews)  # B07은 기록이 없다
-    assert hint.source == "클릭표" and hint.clicks == 86  # 클릭표: 85클릭 900 µm, 90클릭 950 µm
+    # 같은 봉투 기록이 멀면 클릭표로 알려 주되, 내 사진이 표보다 굵게 나오는 비율로 목표를 나눠 읽는다
+    ratio = cal.photo_table_ratio(brews, "메버릭1")
+    hint = cal.click_hint(910, "메버릭1", "B07", "2026-10-14", brews)  # B07 기록(1335 µm)에서 60 µm 넘게 멀다
+    assert hint.source == "클릭표" and hint.clicks == cal.table_clicks(910 / ratio, "메버릭1") and "배 굵게" in hint.basis
     far = cal.click_hint(1250, "메버릭1", "B01", "2026-09-28", brews)  # 같은 봉투 기록(가장 작은 1314 µm)에서 60 µm 넘게 멀다
-    assert far.source == "클릭표" and far.clicks == 120
+    assert far.source == "클릭표" and far.clicks == cal.table_clicks(1250 / ratio, "메버릭1")
+    # 비율을 구할 잔이 모자라면(표시 없는 잔 3잔 미만) 클릭표를 그대로 읽는다: 85클릭 900 µm, 90클릭 950 µm
+    few = [b for b in brews if b.brew_id in ("20261009-1", "20261012-1")]
+    assert cal.photo_table_ratio(few, "메버릭1") is None
+    assert cal.click_hint(910, "메버릭1", "B07", "2026-10-14", few).clicks == 86
+
+
+def test_my_photos_come_out_coarser_than_the_click_table(brews):
+    # 10/19까지 표시 없는 6잔: 사진 ÷ 표 = 1.07–1.53, 가운데 값 약 1.25 (B02 95클릭 1176·1167 µm, 표 1000 µm)
+    until_19 = [b for b in brews if b.date <= "2026-10-19"]
+    assert cal.table_size(95, "메버릭1") == 1000 and cal.table_size(104, "메버릭1") == pytest.approx(1090)
+    assert cal.table_size(200, "메버릭1") is None and cal.table_size(95, "코만단테") is None
+    assert 1.2 < cal.photo_table_ratio(until_19, "메버릭1") < 1.3
     near = cal.click_hint(1720, "메버릭1", "B01", "2026-09-28", brews)  # 105클릭 1683 µm에서 37 µm
     assert near.source == "내 기록" and near.clicks > 105
 
