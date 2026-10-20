@@ -6,6 +6,7 @@
 잔의 위치는 굴절계로 잰 값이 아니라 모델 추정값이다.
 """
 import math
+import re
 from dataclasses import dataclass, field
 
 from dripcoffee.calibration import grind_sizes, roast_name
@@ -210,22 +211,35 @@ def pattern_gap(a, b):
     return sum(abs(x - y) for x, y in zip(a + (0,) * (n - len(a)), b + (0,) * (n - len(b))))
 
 
+# 3단계에서 사진에 맞춰 붓기 간격을 바꾼 잔의 기록(followed_recommendation)에 남는 표시. 예: '간격 30 → 45초'
+REFIT_NOTE = re.compile(r"간격 (\d+(?:\.\d+)?) → (\d+(?:\.\d+)?)초")
+
+
+def usual_interval(brew):
+    """그 잔의 평소 붓기 간격. 3단계에서 사진에 맞춰 간격을 바꾼 잔은 바꾸기 전(추천받은) 간격을 쓴다.
+    바꾼 간격은 그 잔의 가루가 목표보다 굵거나 고와서 맞춘 것이지 평소 습관이 아니라서다(10/20: 클릭표대로 간 케냐
+    두 잔이 굵게 나와 30 → 45초, 60 → 75초로 늘렸는데, 그대로 물려받으면 다음 원두들이 45초 간격에서 출발했다)."""
+    found = REFIT_NOTE.search(brew.row.get("followed_recommendation", "") or "")
+    return float(found.group(1)) if found else pattern_of(brew.pours, brew.dose_g)[1]
+
+
 def usual_recipe(bean, brews):
     """평소 레시피: 같은 원두의 마지막 정상 잔. 기록이 없는 원두는 같은 배전도 묶음(중강배전 이상 / 그 밖)의 마지막
     정상 잔의 물 양·붓기를 쓰고, 그것도 없으면 그 묶음의 기본 레시피(BASE_RECIPES)를 쓴다. 온도는 그 원두
-    배전도 범위의 가운데로 둔다(다른 원두의 온도는 배전도가 달라 그대로 쓰지 않는다)."""
+    배전도 범위의 가운데로 둔다(다른 원두의 온도는 배전도가 달라 그대로 쓰지 않는다). 붓기 간격은 사진에 맞춰
+    바꾸기 전 간격을 쓴다(usual_interval)."""
     normal = [b for b in brews if not b.flag]
     same = [b for b in normal if b.bean_id == bean["bean_id"]]
     low, high = roast_range(bean.get("roast_level", ""))
     if same:
         b = same[-1]
-        return Usual(b.recipe().water_g / b.dose_g, b.water_temp_c, *pattern_of(b.pours, b.dose_g),
+        return Usual(b.recipe().water_g / b.dose_g, b.water_temp_c, pattern_of(b.pours, b.dose_g)[0], usual_interval(b),
                      f"같은 원두의 마지막 잔 {b.brew_id}")
     group = roast_group(bean.get("roast_level", ""))
     alike = [b for b in normal if roast_group(b.row.get("roast_level", "")) == group]
     if alike:
         b = alike[-1]
-        return Usual(b.recipe().water_g / b.dose_g, (low + high) / 2, *pattern_of(b.pours, b.dose_g),
+        return Usual(b.recipe().water_g / b.dose_g, (low + high) / 2, pattern_of(b.pours, b.dose_g)[0], usual_interval(b),
                      f"이 원두는 기록이 없어 같은 배전도 묶음({group})의 마지막 잔 {b.brew_id}의 물 양·붓기와 "
                      "배전도 범위 가운데 온도")
     ratio, pattern, interval = BASE_RECIPES[group]

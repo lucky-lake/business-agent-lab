@@ -1969,8 +1969,11 @@ def flow_record(flow, taste, strength, memo):
         "drawdown_end_s": flow["drawdown_end_s"], "beverage_g": flow["beverage_g"], "bypass_g": recipe.bypass_g,
         **taste, "strength": strength, "memo": " ".join(part for part in (memo.strip(), note) if part),
         "flag": flow.get("flag", ""),
+        # 사진에 맞춰 붓기 간격을 바꿨으면 바꾸기 전 간격을 남긴다. 다음 원두의 '평소 레시피'는 바꾸기 전 간격을 쓴다
         "followed_recommendation": f"예 (한 잔 내리기, 추천 {r.d50_um:.0f} µm"
                                    + (f" → 잰 {measured:.0f} µm에 맞춤" if measured else "")
+                                   + (f" · 간격 {r.interval_s:g} → {flow['interval_s']:g}초"
+                                      if flow.get("interval_s", r.interval_s) != r.interval_s else "")
                                    + f", 목표 {target.ey_pct:.1f}% · {target.tds_pct:.2f}%)",
     }
 

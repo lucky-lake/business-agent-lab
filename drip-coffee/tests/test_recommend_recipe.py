@@ -137,6 +137,16 @@ def test_new_bean_starts_from_the_recipe_of_its_roast_group(brews):
     assert dark.temp_c == 84 and medium_dark.temp_c == 87  # 온도는 그 원두 배전도 범위의 가운데
 
 
+def test_usual_interval_is_the_one_before_the_photo_refit(brews):
+    # 3단계에서 가루가 굵게 나와 간격을 30 → 45초로 늘린 B06 잔은, 평소 레시피로 쓸 때 늘리기 전 간격(30초)을 쓴다
+    b06 = next(b for b in brews if b.brew_id == "20261020-1")
+    assert rec.pattern_of(b06.pours, b06.dose_g) == ((3, 3, 3), 45) and rec.usual_interval(b06) == 30
+    usual = rec.usual_recipe({"bean_id": "새 미디엄", "roast_level": "미디엄"}, [b for b in brews if b.date <= "2026-10-20"])
+    assert "20261020-1" in usual.source and usual.pattern == (3, 3, 3) and usual.interval_s == 30
+    b02 = next(b for b in brews if b.brew_id == "20261019-2")  # 간격을 바꾸지 않은 잔은 기록 그대로
+    assert rec.usual_interval(b02) == 30
+
+
 def test_base_recipes_are_used_when_a_roast_group_has_no_records():
     usual = rec.usual_recipe({"bean_id": "새 강배전", "roast_level": "강배전"}, [])
     assert (usual.pattern, usual.interval_s, usual.water_ratio) == ((4, 2), 60, 8)
