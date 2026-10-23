@@ -1,10 +1,9 @@
 """핸드드립 추출 분석·추천 도구의 화면 (Streamlit).
 
 화면은 입력과 표시만 맡고, 계산은 dripcoffee 패키지에서 한다.
-구조: 첫 화면의 '시작하기'로 한 잔 내리기 흐름(원두와 장비 → 기초 추천 → 분쇄 확인 → 내리기와 기록 → 맛 평가 →
+첫 화면의 '시작하기'로 한 잔 내리기 흐름(원두와 장비 → 기초 추천 → 분쇄 확인 → 내리기와 기록 → 맛 평가 →
 마무리)을 한 화면씩 따라간다. '내 기록 보기'와 '모델 점검'은 첫 화면의 작은 링크로 들어간다.
-디자인은 토스(Toss) 스타일을 따른다: 흰 배경, 포인트 컬러 하나(파랑)와 무채색, 은은한 그림자,
-큰 숫자와 작은 단위·설명, 테두리와 구분선 대신 넓은 여백. 색과 글꼴은 .streamlit/config.toml에 있다.
+색과 글꼴은 .streamlit/config.toml에 있다.
 실행: streamlit run app.py
 """
 import math
@@ -58,8 +57,7 @@ BEAN_TO_BREW = {"name": "bean_name", "roaster": "roaster", "origin": "origin", "
 
 STYLE = """
 <style>
-/* 움직임 값은 토스에서 직접 뽑았다 (10/20, toss.im 코드와 TDS Mobile 문서).
-   튀는 이동 0.2~0.3초 cubic-bezier(0.34, 1.56, 0.64, 1), 부드러운 이동 cubic-bezier(0.4, 0, 0.2, 1), 색 바뀜 0.1초 */
+/* 움직임: 튀는 이동 0.2~0.3초(--dc-spring), 부드러운 이동(--dc-ease), 색 바뀜 0.1초 */
 :root { --dc-spring: cubic-bezier(0.34, 1.56, 0.64, 1); --dc-ease: cubic-bezier(0.4, 0, 0.2, 1); }
 .block-container { max-width: 980px; padding-top: 3.5rem; padding-bottom: 10rem; }  /* 아래 고정 버튼에 가리지 않게 */
 .stTabs [data-baseweb="tab-list"] { gap: 28px; }
@@ -71,7 +69,7 @@ STYLE = """
 
 .dc-eyebrow { font-size: 15px; font-weight: 600; color: #A85A17; margin-bottom: 6px; }
 .dc-home { margin: 8vh 0 28px; }
-[data-testid="stBaseButton-primary"] { min-height: 56px; border-radius: 16px; }  /* 토스 BottomCTA: 높이 56px, 모서리 16px */
+[data-testid="stBaseButton-primary"] { min-height: 56px; border-radius: 16px; }  /* 아래 고정 버튼: 높이 56px, 모서리 16px */
 [data-testid="stBaseButton-primary"] p { font-size: 17px; font-weight: 700; }
 .dc-hero { font-size: 40px; font-weight: 800; color: #2A2A2A; letter-spacing: -0.03em; line-height: 1.25; margin: 4px 0 8px; }
 .dc-title { font-size: 32px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; line-height: 1.3; }
@@ -124,9 +122,8 @@ STYLE = """
 @keyframes dc-count { from { --dc-n: 0; } }
 .dc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
-/* 한 잔 내리기의 아래 고정 버튼 (토스 디자인 시스템 BottomCTA: 화면 아래에 붙고, 위로 36px 흰 그라데이션,
-   아래 여백 20px). 다 채우기 전에는 버튼 자리에 무엇을 채우면 되는지 흐리게 보여 주고, 다 채우면 버튼이 아래에서
-   튀어 올라온다 */
+/* 아래 고정 버튼: 화면 아래에 붙고 위로 36px 흰 그라데이션. 다 채우기 전에는 버튼 자리에 흐린 안내를 두고,
+   다 채우면 버튼이 아래에서 튀어 올라온다 */
 .st-key-flow-cta, .st-key-home-cta { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); z-index: 100;
                    width: 100%; max-width: 980px; padding: 8px 1rem 20px; background: #FFFFFF; }
 .st-key-flow-cta::before, .st-key-home-cta::before { content: ""; position: absolute; left: 0; right: 0; top: -36px; height: 36px;
@@ -161,8 +158,8 @@ STYLE = """
                         35% { transform: translateX(8px); } 55% { transform: translateX(-5px); }
                         75% { transform: translateX(3px); color: #F04452; } }
 
-/* 아이콘 요약 카드: 숫자 여러 개를 회색 판 위 흰 칸으로 한 번에 보여 준다 (토스 자산 목록처럼). 아이콘은 Streamlit에
-   들어 있는 Material Symbols 글꼴이라 인터넷 없이도 보인다. 2×2로 두고, 넓은 화면에서만 한 줄 4칸(3+1로 깨지지 않게) */
+/* 아이콘 요약 카드: 숫자 여러 개를 회색 판 위 흰 칸으로 보여 준다. 아이콘은 Streamlit에 들어 있는
+   Material Symbols 글꼴. 2×2로 두고, 넓은 화면에서만 한 줄 4칸 */
 .dc-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 8px;
               margin: 20px 0 8px; border-radius: 24px; background: #F2F4F6; animation: dc-rise .4s var(--dc-ease) both; }
 .dc-tile { background: #FFFFFF; border-radius: 18px; padding: 16px 16px 14px; min-width: 0; }
@@ -256,7 +253,7 @@ STYLE = """
 .st-key-home-list, .st-key-check-list { gap: 0; padding: 6px 0; border-radius: 24px; background: #FFFFFF;
                     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04); animation: dc-rise .4s .08s var(--dc-ease) both; }
 .st-key-home-check button p { font-size: 13px; color: #8B95A1; }
-/* 누를 수 있는 목록 한 줄 (토스 ListRow, list_row): 보이는 내용은 HTML, 그 위를 투명한 버튼이 통째로 덮는다 */
+/* 누를 수 있는 목록 한 줄 (list_row): 보이는 내용은 HTML, 그 위를 투명한 버튼이 통째로 덮는다 */
 [class*="st-key-row-"] { position: relative; gap: 0; }
 [class*="st-key-row-"] [data-testid="stElementContainer"]:has(button) { position: absolute; inset: 0; z-index: 1; }
 [class*="st-key-row-"] [data-testid="stElementContainer"]:has(button) div { height: 100%; }
@@ -367,7 +364,7 @@ STYLE = """
 .dc-tut-size { position: absolute; right: 12px; bottom: 12px; padding: 4px 12px; border-radius: 100px;
                background: #A85A17; color: #FFFFFF; font-size: 14px; font-weight: 700;
                animation: dc-pop-in .45s var(--dc-spring) 2s both; }
-/* 3장: 커피포트가 붓기 시간표를 4.5초에 지나간다. 파란 칸(붓는 때)에 닿으면 기울어 붓고, 칸이 끝날 때쯤 다시
+/* 3장: 커피포트가 붓기 시간표를 4.5초에 지나간다. 붓는 칸에 닿으면 기울어 붓고, 칸이 끝날 때쯤 다시
    똑바로 선다. 칸은 포트가 지나가는 만큼 채워지고, 기울었을 때 주둥이 끝이 그 채워지는 끝 바로 위에 온다.
    기울기의 % 값은 TUTORIAL_POURS(4–18, 34–50, 64–80)에 맞춘 것이라 칸을 바꾸면 함께 바꾼다 */
 .dc-tut-track { position: absolute; left: 80px; right: 28px; top: 124px; height: 12px; border-radius: 6px;
@@ -396,8 +393,8 @@ STYLE = """
 .dc-tut-change .dc-icon { width: 28px; height: 28px; font-size: 16px; margin: 0; }
 .dc-tut-change b { color: #2A2A2A; }
 
-/* 위에서 내려오는 알림 (토스 디자인 시스템 Toast: 흰 알약 모양, 옅은 그림자, 15px 굵은 글자, 왼쪽 아이콘,
-   위쪽 알림은 48px 위에서 내려오고 3초 뒤 사라짐). 알림 자리는 화면 흐름 밖에 고정해 내용을 밀지 않는다 */
+/* 위에서 내려오는 알림 (toast): 흰 알약 모양, 왼쪽 아이콘, 48px 위에서 내려오고 3초 뒤 사라진다.
+   알림 자리는 화면 흐름 밖에 고정해 내용을 밀지 않는다 */
 .st-key-dc-toasts { position: fixed; top: 0; left: 0; right: 0; height: 0; z-index: 1000100; pointer-events: none; }
 .dc-toast { position: fixed; top: 16px; left: 50%; display: flex; align-items: center; gap: 8px;
             width: max-content; max-width: min(92vw, 560px); padding: 12px 16px 12px 12px; border-radius: 100px;
@@ -440,10 +437,9 @@ TOASTS = None  # 위에서 내려오는 알림 자리. 페이지를 그리기 �
 
 
 def toast(text, error=False, icon=None):
-    """토스 디자인 시스템의 Toast처럼 화면 위에서 내려왔다가 3초 뒤 사라지는 알림.
-    잘못 적은 값, 읽지 못한 사진, 저장 실패처럼 잠깐 알리면 되는 것에 쓴다. 노란 '!'는 고쳐 달라는 뜻, 빨간 '!'는 실패.
-    icon(Material Symbols 이름)을 주면 파란 아이콘의 안내 알림이 된다(예: 맛보기 전 가수 안내).
-    화면에 계속 남아야 하는 상태(추천을 찾지 못함 등)는 notice로 보여 준다."""
+    """화면 위에서 내려왔다가 3초 뒤 사라지는 알림. 잘못 적은 값, 읽지 못한 사진, 저장 실패처럼 잠깐 알릴 것에 쓴다.
+    노란 '!'는 고쳐 달라는 뜻, 빨간 '!'는 실패. icon(Material Symbols 이름)을 주면 강조색 아이콘의 안내 알림이 된다.
+    화면에 계속 남아야 하는 상태는 notice로 보여 준다."""
     mark = (f'<span class="dc-toast-icon info" aria-hidden="true">{icon}</span>' if icon
             else '<span class="dc-toast-icon" aria-hidden="true">!</span>')
     markup = (f'<div class="dc-toast{" error" if error else ""}" role="{"status" if icon else "alert"}" '
@@ -489,8 +485,7 @@ def summary(*tiles):
 
 def pour_timeline(recipe, end_s=None, end_label="끊김 예상"):
     """붓기 일정을 가로 막대로 그린다. 막대 위치는 붓는 시각, 길이는 붓는 양(붓는 속도로 걸리는 시간)이다.
-    위에는 붓는 양, 아래에는 시각과 저울에 보일 누적을 적고, end_s를 주면 물줄기가 끊길 것으로 보는 시각을 표시한다.
-    글 목록보다 한눈에 들어오게 바꿨다 (10/20 사용자 요청)."""
+    위에는 붓는 양, 아래에는 시각과 저울에 보일 누적을 적고, end_s를 주면 물줄기가 끊기는 시각을 표시한다."""
     rate = em.DEFAULT_PARAMS.pour_rate_g_per_s
     span = max(end_s or 0, max(p.start_s + p.grams / rate for p in recipe.pours) + 20) * 1.04
 
@@ -530,11 +525,7 @@ def analyze_upload(data):
 
 
 def outline_image(rectified, measurement):
-    """펴진 가루 칸 위에 입자를 색으로 칠한 RGB 이미지.
-
-    화면에서 사진이 작게 줄어도 보이도록 선만 긋지 않고 입자 안을 반투명하게 칠한다.
-    잰 입자는 파랗게, 뺀 입자는 회색으로 옅게 만들어 잰 입자에 눈이 가게 한다.
-    """
+    """펴진 가루 칸 위에 입자를 반투명하게 칠한 RGB 이미지. 잰 입자는 파랗게, 뺀 입자는 회색으로 옅게."""
     image = rectified.image
     rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB) if image.ndim == 3 else cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
     thickness = max(1, round(max(rgb.shape[:2]) / 500))
@@ -783,11 +774,8 @@ def taste_inputs(key, names=None, short=False):
 
 
 def taste_hexagon(scores, compact=False):
-    """맛 점수 육각형(SVG). 기록지 순서로 맨 위 Aroma부터 시계 방향으로 돈다.
-
-    매긴 항목은 점으로 찍고, 6항목을 다 매기면 면을 칠한다. 산미·바디는 좋고 나쁨이 아니라 세기라서
-    이름을 회색으로 낮추고 '세기'를 붙인다. 그래야 육각형이 클수록 좋은 잔이라고 읽지 않는다.
-    """
+    """맛 점수 육각형(SVG). 맨 위 Aroma부터 시계 방향으로 돈다. 매긴 항목은 점으로 찍고, 6항목을 다 매기면
+    면을 칠한다. 산미·바디는 좋고 나쁨이 아닌 세기라서 이름을 회색으로 낮추고 '세기'를 붙인다."""
     width, height, cx, cy, radius = 360, 300, 180, 150, 90
 
     def at(i, value):
@@ -873,8 +861,7 @@ def recent_brews_table(brews, limit=8):
 
 GOLDEN_CUP_BOX = ((18.0, 22.0), (1.15, 1.35))  # 골든컵 범위: 추출수율 %, 농도 % (MODEL.md 9.1)
 CUP_KINDS = ("좋았던 잔", "다른 잔")  # 그림의 점: 목표를 당긴 잔(만족도 2.5 초과)과 나머지
-# 그림 아래 기호 설명. 기호 모양과 색은 그림과 같게 맞춘다. 내 선호 중심과 골든컵 중심 표시는 처음 보는 사람에게
-# 읽기 어려워 그림에서 뺐고, 값은 '목표는 어떻게 정해져요?'에 글로 적는다 (10/20)
+# 그림 아래 기호 설명. 기호 모양과 색은 그림과 같게 맞춘다
 PREFERENCE_LEGEND = '<div class="dc-legend">' + "".join(
     f'<span><i style="color:{color}">{symbol}</i>{name}</span>'
     for symbol, color, name in [("●", BRAND, CUP_KINDS[0]), ("●", GRAY_LIGHT, CUP_KINDS[1]), ("◆", BRAND, "다음 잔 목표")]
@@ -888,9 +875,7 @@ def axis(title):
 
 def preference_chart(points, target, pick=None):
     """잔마다 (추출수율, 가수 후 농도)를 점으로 찍고, 골든컵 범위와 다음 잔 목표를 함께 그린다.
-    좋았던 잔(가중치 > 0)은 강조색으로, 점수가 높을수록 진하게 칠하고, 나머지는 회색으로 둔다.
-    축 이름에 '오른쪽일수록 더 우러나요', '위일수록 진해요'를 붙여 숫자를 몰라도 읽히게 한다.
-    pick(altair 선택)을 주면 점을 눌러 그 잔을 고를 수 있다."""
+    좋았던 잔(가중치 > 0)은 점수가 높을수록 진한 강조색, 나머지는 회색. pick(altair 선택)을 주면 점을 눌러 잔을 고른다."""
     (ey_low, ey_high), (tds_low, tds_high) = GOLDEN_CUP_BOX
     cups = pd.DataFrame(
         {
@@ -1181,7 +1166,7 @@ def log_form():
                           key=key(f"pours-{bean_id}"))
     recipe_name = c2.text_input("레시피 이름 (선택)", default["recipe"], key=key(f"recipe-{bean_id}"))
     followed = use_prefill and st.checkbox("추천 레시피를 따라 내렸어요", value=True, key=key("followed"),
-                                           help="10/25 점검(추천 레시피로 내린 잔 수)과 추천이 맞았는지 분석에 써요.")
+                                           help="추천이 맞았는지 볼 때 써요.")
 
     section("결과", "드리퍼를 뺀 시각과, 가수하기 전에 잰 음료 무게예요.")
     c1, c2 = st.columns(2)
@@ -1251,7 +1236,7 @@ def grind_input():
 
 
 def timeline_chart(prediction, recipe, actual_end=None):
-    """시간에 따라 나온 음료와 드리퍼에 고인 물. 붓기 시점은 회색 점선, 물줄기가 끊기는 시각은 파란 점선.
+    """시간에 따라 나온 음료와 드리퍼에 고인 물. 붓기 시점은 회색 점선, 물줄기가 끊기는 시각은 강조색 점선.
     기록한 잔과 비교할 때는 실제로 끊긴 시각(actual_end)을 진한 회색 점선으로 함께 그린다."""
     t = prediction.timeline
     data = pd.concat([
@@ -1337,7 +1322,7 @@ def error_summary(comparisons):
              "'크기 평균'은 부호를 빼고 얼마나 빗나가는지예요.</div>")
 
 
-VALIDATION_LIMITS = (30.0, 6.0)  # 판정 기준: 끊김 ±30초, 음료 ±6 g (MODEL.md 6절, 검증 잔을 내리기 전에 정함)
+VALIDATION_LIMITS = (30.0, 6.0)  # 판정 기준: 끊김 ±30초, 음료 ±6 g (MODEL.md 6절)
 
 
 def within_limits(c):
@@ -1472,8 +1457,7 @@ def new_recipe_view(brews):
 
 @st.cache_data(show_spinner=False, max_entries=20)
 def cached_recommendation(bean_id, dose_g, log_version, intent="평소대로"):
-    """추천은 0.1–2초 걸려서, 기록 파일이 바뀌지 않았으면(log_version) 지난 결과를 다시 쓴다.
-    intent는 이번 잔만의 요청(rec.INTENTS)이다."""
+    """기록 파일이 바뀌지 않았으면(log_version) 지난 추천을 다시 쓴다. intent는 이번 잔만의 요청(rec.INTENTS)."""
     brews = cal.load_brews(BREWS_PATH)
     target = rec.with_intent(rec.preference_target(rec.brew_points(brews)), intent)
     return target, rec.recommend_recipe(target, cal.load_beans(BEANS_PATH)[bean_id], brews, dose_g)
@@ -1544,7 +1528,7 @@ def recommend_tab():
         st.session_state["log_prefill"] = {
             "bean_id": bean_id, "dose_g": recipe.dose_g, "water_temp_c": recipe.water_temp_c,
             "pours": rec.pours_text(recipe.pours), "bypass_g": recipe.bypass_g, "d50_um": r.d50_um,
-            # 10/25 점검(추천 레시피 3잔 이상)과 나중 분석을 위해 무엇을 추천했는지 함께 남긴다
+            # 무엇을 추천했는지 함께 남긴다
             "followed": f"예 (추천 {r.d50_um:.0f} µm, 목표 {target.ey_pct:.1f}% · {target.tds_pct:.2f}%)",
         }
         st.session_state["log_form"] = st.session_state.get("log_form", 0) + 1  # 입력칸을 새로 만들어 채운다
@@ -1582,13 +1566,9 @@ FLOW_CTA = None  # 한 잔 내리기 화면 아래에 붙는 버튼 자리. flow
 
 
 def bottom_cta(label, key, ready=True, hint="", back_to=None, back_key=None):
-    """토스 디자인 시스템의 BottomCTA처럼 화면 아래에 붙은 버튼. 눌렀으면 True.
-
-    ready가 아니면 버튼 대신, 무엇을 채우면 다음으로 갈 수 있는지(hint)를 같은 자리에 흐리게 보여 준다. 그 자리를
-    누르면 좌우로 흔들려 아직 갈 수 없다고 알린다(cta_hint). 다 채우면 버튼이 아래에서 튀어 올라온다(STYLE).
-    back_to가 있으면 왼쪽에 '이전' 버튼을 둔다.
-    단계 화면은 나타날 때 움직이므로(transform), 그 안에 두면 고정 위치가 흔들려서 단계 화면 밖의 자리에 그린다.
-    """
+    """화면 아래에 붙은 버튼. 눌렀으면 True.
+    ready가 아니면 버튼 자리에 무엇을 채우면 되는지(hint)를 흐리게 보여 준다(cta_hint). back_to가 있으면 왼쪽에
+    '이전' 버튼을 둔다. 단계 화면의 움직임(transform)에 흔들리지 않게 단계 화면 밖의 자리(FLOW_CTA)에 그린다."""
     with FLOW_CTA:
         if back_to is not None:
             left, right = st.columns([1, 2])
@@ -1608,7 +1588,7 @@ def tap_hint(taps_key):
 
 
 def cta_hint(hint, key):
-    """아직 갈 수 없을 때 버튼 자리에 두는 흐린 안내. 누르면 좌우로 흔들린다(iOS·토스의 '안 돼요' 흔들림).
+    """아직 갈 수 없을 때 버튼 자리에 두는 흐린 안내. 누르면 좌우로 흔들린다.
     애니메이션은 화면 요소가 바뀌어야 다시 재생되므로, 누를 때마다 상자 이름(key)을 a, b로 번갈아 바꾼다."""
     taps = st.session_state.get(f"{key}-taps", 0)
     state = "still" if not taps else "ab"[taps % 2]
@@ -2161,7 +2141,7 @@ def flow_record(flow, taste, strength, memo):
         "drawdown_end_s": flow["drawdown_end_s"], "beverage_g": flow["beverage_g"], "bypass_g": recipe.bypass_g,
         **taste, "strength": strength, "memo": " ".join(part for part in (memo.strip(), note) if part),
         "flag": flow.get("flag", ""),
-        # 사진에 맞춰 붓기 간격을 바꿨으면 바꾸기 전 간격을 남긴다. 다음 원두의 '평소 레시피'는 바꾸기 전 간격을 쓴다
+        # 사진에 맞춰 붓기 간격을 바꿨으면 바꾸기 전 간격도 남긴다(rec.usual_interval)
         "followed_recommendation": f"예 (한 잔 내리기, 추천 {r.d50_um:.0f} µm"
                                    + (f" → 잰 {measured:.0f} µm에 맞춤" if measured else "")
                                    + (f" · 간격 {r.interval_s:g} → {flow['interval_s']:g}초"
@@ -2176,9 +2156,7 @@ STRENGTH_ICONS = {"연했어요": "water_drop", "딱 좋았어요": "check_circl
 
 def flow_taste(flow):
     """5단계: 맛 평가. 가수하고 바로 맛본 점수와 진하기를 받아 이 잔을 기록에 저장한다.
-    가수 안내는 들어올 때 한 번 위에서 내려왔다 사라지는 알림으로 띄우고(누를 필요 없게), 화면에는 작은 표시만 둔다.
-    만족도 육각형을 위에 두고
-    슬라이더는 '좋았던 정도'와 '세기' 두 묶음으로 나눈다. 진하기는 큰 선택 카드, 메모는 접어 둔다."""
+    가수 안내는 들어올 때 한 번 알림으로 띄운다. 만족도 육각형 아래 슬라이더를 '좋았던 정도'와 '세기'로 나눈다."""
     recipe = flow["recipe"]
     if not flow.get("taste_intro_shown"):
         flow["taste_intro_shown"] = True
@@ -2249,8 +2227,7 @@ def change_row(icon, name, before, after, unit, why):
 
 
 def bypass_reason(strength, delta):
-    """가수가 바뀐 이유를 사용자가 고른 진하기 말로. 진하기 답과 바뀐 방향이 맞을 때만 그 답을 이유로 든다
-    (목표 농도는 진하기 답으로 배운다, MODEL.md 9.1)."""
+    """가수가 바뀐 이유를 진하기 답으로 말한다. 진하기 답과 바뀐 방향이 맞을 때만 그 답을 이유로 든다(MODEL.md 9.1)."""
     answer = STRENGTH_CHOICES.get(strength)
     consistent = {"진함": delta >= 1, "연함": delta <= -1, "좋음": abs(delta) < 1}.get(strength, False)
     return f"'{answer}'라고 답해서" if consistent else "맛 점수와 진하기를 함께 반영해서"
@@ -2354,7 +2331,7 @@ def page_header(name, title, lead, eyebrow="Drip Coffee"):
 
 
 def list_row(key, markup, label, on_click, args=()):
-    """누를 수 있는 목록 한 줄 (토스 ListRow). 보이는 내용은 HTML로 그리고, 같은 크기의 투명한 버튼을 그 위에 덮어
+    """누를 수 있는 목록 한 줄. 보이는 내용은 HTML로 그리고, 같은 크기의 투명한 버튼을 그 위에 덮어
     줄 어디를 눌러도 눌리게 한다. 화면 읽기 프로그램은 버튼 이름(label)을 읽는다."""
     with st.container(key=f"row-{key}"):
         html(markup)
@@ -2362,7 +2339,7 @@ def list_row(key, markup, label, on_click, args=()):
 
 
 def row_markup(lead, title, sub="", action="", muted=False, wide_sub=""):
-    """목록 한 줄의 모양: 왼쪽 동그라미(lead), 제목과 작은 설명, 오른쪽 글(할 일은 파랗게, 개수는 회색)과 '>'.
+    """목록 한 줄의 모양: 왼쪽 동그라미(lead), 제목과 작은 설명, 오른쪽 글(할 일은 강조색, 개수는 회색)과 '>'.
     wide_sub는 넓은 화면에서만 설명 앞에 붙인다 (폰에서는 설명이 두 줄로 꺾이지 않게 뺀다)."""
     wide = f'<span class="dc-wide">{escape(wide_sub)}</span>' if wide_sub else ""
     sub = f"<small>{wide}{escape(sub)}</small>" if sub else ""
@@ -2387,14 +2364,13 @@ def brew_same_bean(last):
 
 
 def home_page():
-    """첫 화면: 아래에 붙은 '시작하기' 하나를 크게 두고, 지난 잔과 내 기록은 누를 수 있는 목록 한 줄씩.
-    모델 점검은 사용자 화면이 아니라 모델이 실제 잔을 얼마나 맞히는지 보는 검증 화면이라 맨 아래 작게 둔다."""
+    """첫 화면: 아래에 붙은 '시작하기', 지난 잔과 내 기록 목록, 맨 아래 작은 '모델 점검' 링크."""
     html('<div class="dc-home"><div class="dc-icon dc-home-icon" aria-hidden="true">coffee</div>'
          '<div class="dc-eyebrow">Drip Coffee</div><div class="dc-hero">오늘의 한 잔</div>'
          '<div class="dc-lead">원두와 장비만 알려 주면 레시피부터 기록까지 안내해요.<br>'
          "맛을 매길수록 다음 잔이 내 입맛에 가까워져요.</div></div>")
     brews = cal.load_brews(BREWS_PATH)
-    # 사용법 링크: 처음 쓰는 사람에게는 파랗게, 기록이 있는 사람에게는 '다시 보기'로 회색으로 작게
+    # 사용법 링크: 기록이 없으면 강조색, 있으면 '다시 보기'로 회색으로 작게
     with st.container(key="home-guide-again" if brews else "home-guide-new"):
         st.button("사용법 다시 보기 ›" if brews else "처음이세요? 사용법 보기 ›", type="tertiary", key="home-tutorial",
                   on_click=open_page, args=("tutorial",))
@@ -2469,7 +2445,7 @@ KETTLE = ('<path d="M21 30 H45 L50 60 Q50 63 47 63 H19 Q16 63 16 60 Z"/><path d=
 
 
 def tutorial_pours():
-    """3장: 커피포트가 시간표를 지나가며 파란 칸에서 기울어 붓고, 칸은 포트가 지나간 만큼 채워진다."""
+    """3장: 커피포트가 시간표를 지나가며 붓는 칸에서 기울어 붓고, 칸은 포트가 지나간 만큼 채워진다."""
     def at(percent):
         return TUTORIAL_POUR_START_S + TUTORIAL_POUR_S * percent / 100
 
@@ -2521,7 +2497,7 @@ def tutorial_next():
 
 
 def tutorial_page():
-    """사용법: 한 잔 내리기의 흐름을 네 장의 움직이는 그림으로 보여 준다(토스 온보딩처럼). 기록이 하나도 없을 때
+    """사용법: 한 잔 내리기의 흐름을 네 장의 움직이는 그림으로 보여 준다. 기록이 하나도 없을 때
     '시작하기'를 누르면 먼저 나오고, 시작 화면의 '사용법 보기'로 언제든 다시 볼 수 있다."""
     page = min(st.session_state.setdefault("tutorial", 0), len(TUTORIAL) - 1)
     last = page == len(TUTORIAL) - 1

@@ -61,15 +61,15 @@ class ModelParams:
     """모델 상수. 값과 근거, 상태(미확인/가정/보정)는 docs/MODEL.md 4절 표와 같다."""
 
     # 물 흐름 (노트1)
-    flow_resistance_ref: float = 1.08e12  # R_ref (m⁻³): 대표 크기 1000 µm, 원두 20 g 기준. 보정 계수 1. 기록 7잔의 물 빠짐 종료 시각에 맞춤 (10/19 보정 3, MODEL.md 5절)
+    flow_resistance_ref: float = 1.08e12  # R_ref (m⁻³): 대표 크기 1000 µm, 원두 20 g 기준. 보정 계수 1. 기록 7잔의 물 빠짐 종료 시각에 맞춤 (MODEL.md 5절)
     resistance_d_ref_um: float = 1000.0
-    resistance_size_exponent: float = 2.0  # 흐름 저항 ∝ (d_ref/d)^n. 코제니–카르만 식은 n = 2 (보정 3에서 미리 정한 규칙대로 유지)
+    resistance_size_exponent: float = 2.0  # 흐름 저항 ∝ (d_ref/d)^n. 코제니–카르만 식의 n = 2
     resistance_dose_ref_g: float = 20.0
-    held_liquid_ratio: float = 2.29  # R_abs (g/g): 가루가 머금는 액체. 보정 계수 2. 기록 7잔의 음료 무게에 맞춤 (시작값 2.1, 노트3 M2)
+    held_liquid_ratio: float = 2.29  # R_abs (g/g): 가루가 머금는 액체. 보정 계수 2. 기록 7잔의 음료 무게에 맞춤 (노트3 M2)
     cone_half_angle_deg: float = 29.6  # V60 02 원뿔 반각: 제조사 규격(구경 116 mm, 높이 102 mm)에서 atan(58/102)
     outlet_diameter_mm: float = 20.0  # 드리퍼 바닥 구멍 지름 (자로 잰 대략값). 물 높이는 이 구멍에서 잰다
-    bulk_density_g_per_ml: float = 0.35  # 마른 가루 부피 밀도 (가정 → 측정 예정)
-    pour_rate_g_per_s: float = 5.0  # 붓는 속도 (가정 → 측정 예정)
+    bulk_density_g_per_ml: float = 0.35  # 마른 가루 부피 밀도 (가정)
+    pour_rate_g_per_s: float = 5.0  # 붓는 속도 (가정)
     # 추출 (노트2)
     max_extractable: float = 0.30  # E_max: 녹아 나올 수 있는 성분 비율 (K8, K5)
     slow_rate_ref_per_s: float = 1.99e-3  # k_ref: 입자 속 성분의 추출 속도 (반지름 925 µm, 80 °C). 문헌 범위 안에서 문헌 비교로 정함 (MODEL.md 6절)
@@ -122,10 +122,7 @@ def parse_pours(text):
 
 def grind_from_d50(d50_um, spread=1.5, n_bins=25):
     """대표 크기만 알 때 쓰는 분쇄도: 부피 기준 로그 정규 분포.
-
-    spread는 '대부분의 범위(D16~D84)'의 기하 표준편차다. 실제 사진 측정에서 1.46(95클릭 카메라),
-    1.55(95클릭 폰)가 나와서 1.5로 둔다.
-    """
+    spread는 '대부분의 범위(D16~D84)'의 기하 표준편차다(사진 측정값 1.46–1.55)."""
     log_sigma = math.log(spread)
     edges = np.exp(np.linspace(math.log(d50_um) - 3 * log_sigma, math.log(d50_um) + 3 * log_sigma, n_bins + 1))
     centers = np.sqrt(edges[:-1] * edges[1:])
