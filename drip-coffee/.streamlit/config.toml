@@ -1,8 +1,8 @@
 # 앱 디자인: 토스(Toss) 스타일.
-# 흰 배경, 진회색 글자(#2A2A2A), 포인트 컬러는 파랑 하나, 나머지는 무채색.
+# 흰 배경, 진회색 글자(#2A2A2A), 포인트 컬러는 캐러멜(#A85A17) 하나, 나머지는 무채색.
 [theme]
 base = "light"
-primaryColor = "#3182F6"
+primaryColor = "#A85A17"
 backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F2F4F6"
 textColor = "#2A2A2A"

@@ -32,7 +32,7 @@ BREWS_PATH = Path(os.environ.get("DRIP_COFFEE_BREWS", cal.BREWS_PATH))
 BEANS_PATH = Path(os.environ.get("DRIP_COFFEE_BEANS", cal.BEANS_PATH))
 EQUIPMENT_PATH = Path(os.environ.get("DRIP_COFFEE_EQUIPMENT", cal.EQUIPMENT_PATH))
 
-BRAND = "#3182F6"  # 포인트 컬러는 이것 하나만 쓴다
+BRAND = "#A85A17"  # 포인트 컬러(캐러멜). 사진 위 잰 입자 표시만 커피색과 구별되게 파랑(OUTLINE_COLORS)
 TEXT = "#2A2A2A"
 GRAY_DARK = "#4E5968"
 GRAY = "#8B95A1"
@@ -71,7 +71,7 @@ STYLE = """
 [data-testid="stExpander"] summary { padding: 18px 22px; }
 [data-testid="stExpander"] summary p { font-size: 16px; font-weight: 600; }
 
-.dc-eyebrow { font-size: 15px; font-weight: 600; color: #3182F6; margin-bottom: 6px; }
+.dc-eyebrow { font-size: 15px; font-weight: 600; color: #A85A17; margin-bottom: 6px; }
 .dc-home { margin: 8vh 0 28px; }
 [data-testid="stBaseButton-primary"] { min-height: 56px; border-radius: 16px; }  /* 토스 BottomCTA: 높이 56px, 모서리 16px */
 [data-testid="stBaseButton-primary"] p { font-size: 17px; font-weight: 700; }
@@ -91,7 +91,7 @@ STYLE = """
 .dc-label { font-size: 15px; font-weight: 500; color: #6B7684; margin-bottom: 6px; }
 .dc-value { font-size: 48px; font-weight: 700; color: #2A2A2A; line-height: 1.2;
             letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-.dc-card.hero .dc-value { color: #3182F6; }
+.dc-card.hero .dc-value { color: #A85A17; }
 .dc-unit { font-size: 24px; font-weight: 600; color: #4E5968; margin-left: 6px; letter-spacing: 0; }
 .dc-sub { font-size: 14px; color: #8B95A1; margin-top: 10px; line-height: 1.5; }
 
@@ -112,7 +112,7 @@ STYLE = """
 .dc-hexagon { background: #F9FAFB; border-radius: 24px; padding: 16px 12px 20px; text-align: center; }
 .dc-hexagon svg { width: 100%; max-width: 380px; height: auto; }
 .dc-hexagon-score { font-size: 15px; color: #6B7684; margin-top: 4px; }
-.dc-hexagon-score b { font-size: 24px; font-weight: 700; color: #3182F6; margin-left: 4px; font-variant-numeric: tabular-nums; }
+.dc-hexagon-score b { font-size: 24px; font-weight: 700; color: #A85A17; margin-left: 4px; font-variant-numeric: tabular-nums; }
 .dc-hexagon .dc-caption { margin: 6px 16px 0; }
 
 @keyframes dc-rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
@@ -185,7 +185,7 @@ STYLE = """
 @media (min-width: 760px) { .dc-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .dc-icon { font-family: "Material Symbols Rounded"; font-size: 20px; line-height: 1; width: 36px; height: 36px;
            border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-bottom: 10px;
-           background: #E8F3FF; color: #3182F6; font-variation-settings: "FILL" 1; }
+           background: #FBEFE3; color: #A85A17; font-variation-settings: "FILL" 1; }
 .dc-tile-label { font-size: 14px; color: #6B7684; }
 .dc-tile-value { font-size: 28px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; line-height: 1.25;
                  font-variant-numeric: tabular-nums; }
@@ -198,16 +198,16 @@ STYLE = """
 .dc-tl-track { position: absolute; left: 0; right: 0; top: 52px; height: 12px; border-radius: 6px; background: #F2F4F6; }
 .dc-tl-pour { position: absolute; top: 0; height: 128px; }
 .dc-tl-bar { position: absolute; left: 0; right: 0; top: 42px; height: 32px; min-width: 10px; border-radius: 8px;
-             background: #3182F6; transform-origin: left center; animation: dc-grow .45s var(--dc-spring) both;
+             background: #A85A17; transform-origin: left center; animation: dc-grow .45s var(--dc-spring) both;
              animation-delay: calc(var(--i) * 90ms); }
-.dc-tl-pour.bloom .dc-tl-bar { background: #90C2FF; }
+.dc-tl-pour.bloom .dc-tl-bar { background: #D9A877; }
 .dc-tl-g, .dc-tl-t, .dc-tl-c { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; }
 .dc-tl-g { top: 14px; font-size: 15px; font-weight: 700; color: #2A2A2A; }
 .dc-tl-t { top: 82px; font-size: 13px; font-weight: 600; color: #4E5968; font-variant-numeric: tabular-nums; }
 .dc-tl-c { top: 102px; font-size: 12px; color: #8B95A1; }
 .dc-tl-end { position: absolute; top: 4px; bottom: 34px; border-left: 2px dashed #B0B8C1; }
 .dc-tl-end span { position: absolute; top: -6px; right: 8px; white-space: nowrap; font-size: 13px; font-weight: 700;
-                  color: #3182F6; }
+                  color: #A85A17; }
 @keyframes dc-grow { from { transform: scaleX(0); } to { transform: none; } }
 
 /* 맛 평가: 슬라이더를 '좋았던 정도'와 '세기' 두 묶음의 회색 판에 담고, 육각형은 위에 작게 둔다 */
@@ -219,7 +219,7 @@ STYLE = """
 .dc-hexagon.compact .dc-hexagon-score { margin: 0; flex: none; }
 .dc-hexagon.compact .dc-hexagon-score b { display: block; font-size: 36px; margin: 0; }
 .dc-chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px 6px 8px; border-radius: 100px;
-           background: #E8F3FF; color: #1B64DA; font-size: 14px; font-weight: 600; margin: 4px 0 8px; }
+           background: #FBEFE3; color: #874711; font-size: 14px; font-weight: 600; margin: 4px 0 8px; }
 .dc-chip .dc-icon { width: 24px; height: 24px; font-size: 15px; margin: 0; background: #FFFFFF; }
 /* 진하기: 세 가지를 아이콘이 있는 큰 선택 카드로 */
 .st-key-flow-strength [data-testid="stButtonGroup"] > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
@@ -228,8 +228,8 @@ STYLE = """
 .st-key-flow-strength button p { font-size: 15px; font-weight: 600; }
 .st-key-flow-strength button [data-testid="stIconMaterial"] { font-size: 24px; }
 .st-key-flow-strength button div { flex-direction: column; gap: 4px; }
-.st-key-flow-strength button[aria-checked="true"] { border: 2px solid #3182F6 !important; background: #E8F3FF;
-                                                   color: #1B64DA; }
+.st-key-flow-strength button[aria-checked="true"] { border: 2px solid #A85A17 !important; background: #FBEFE3;
+                                                   color: #874711; }
 /* 6단계의 기록 완료 */
 .dc-done { text-align: center; }
 .dc-done .dc-icon { width: 64px; height: 64px; font-size: 34px; margin: 4px auto 14px; animation: dc-pop .45s var(--dc-spring) both; }
@@ -245,7 +245,7 @@ STYLE = """
 .dc-change-name small { display: block; font-size: 12px; color: #8B95A1; margin-top: 2px; }
 .dc-change-from { font-size: 14px; color: #B0B8C1; }
 .dc-change-to { font-size: 17px; font-weight: 700; color: #2A2A2A; }
-.dc-pill { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 100px; background: #E8F3FF; color: #1B64DA; }
+.dc-pill { font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 100px; background: #FBEFE3; color: #874711; }
 .dc-pill.same { background: #F2F4F6; color: #8B95A1; }
 
 /* 시작 화면: 커피 아이콘이 튀어나오고, 지난 잔과 내 기록은 누를 수 있는 목록으로 */
@@ -266,25 +266,25 @@ STYLE = """
 [class*="st-key-row-"]:hover .dc-lrow { background: #F9FAFB; }
 [class*="st-key-row-"]:has(button:active) .dc-lrow { transform: scale(.98); }
 .dc-lrow .dc-icon, .dc-avatar { flex: none; width: 40px; height: 40px; margin: 0; }
-.dc-avatar { border-radius: 50%; background: #E8F3FF; color: #1B64DA; font-size: 13px; font-weight: 700;
+.dc-avatar { border-radius: 50%; background: #FBEFE3; color: #874711; font-size: 13px; font-weight: 700;
              display: flex; align-items: center; justify-content: center; }
 .dc-lrow-text { flex: 1; min-width: 0; }
 .dc-lrow-text b { display: block; font-size: 16px; font-weight: 600; color: #2A2A2A; overflow: hidden;
                   white-space: nowrap; text-overflow: ellipsis; }
 .dc-lrow-text small { display: block; font-size: 13px; color: #8B95A1; margin-top: 1px; overflow: hidden;
                       white-space: nowrap; text-overflow: ellipsis; }
-.dc-lrow-go { font-size: 14px; font-weight: 600; color: #3182F6; white-space: nowrap; }
+.dc-lrow-go { font-size: 14px; font-weight: 600; color: #A85A17; white-space: nowrap; }
 .dc-lrow-go.muted { color: #8B95A1; font-weight: 500; }
 .dc-lrow-chev { font-family: "Material Symbols Rounded"; font-size: 22px; color: #B0B8C1; margin-left: -8px; }
 @media (max-width: 480px) { .dc-wide { display: none; } .dc-lrow { gap: 10px; padding: 12px 16px; } }
-.dc-lrow.on { background: #E8F3FF; }
+.dc-lrow.on { background: #FBEFE3; }
 /* 모델 점검 > 예측과 실제: 가운데 막대가 판정 기준(±30초), 점이 예측과 실제의 차이. 기준 밖은 빨갛게, 표시 잔은 회색 */
 .dc-band { position: relative; flex: none; width: 72px; height: 16px; }
 .dc-band::before { content: ""; position: absolute; left: 0; right: 0; top: 6px; height: 4px; border-radius: 2px;
-                   background: #D6E8FF; }
+                   background: #F3DCC4; }
 .dc-band::after { content: ""; position: absolute; left: 50%; top: 2px; width: 1px; height: 12px; background: #B0B8C1; }
 .dc-band i { position: absolute; top: 3px; z-index: 1; width: 10px; height: 10px; margin-left: -5px; border-radius: 50%;
-             background: #3182F6; }
+             background: #A85A17; }
 .dc-band i.out { background: #F04452; }
 .dc-band i.muted { background: #B0B8C1; }
 .dc-check-pill { flex: none; min-width: 52px; text-align: center; }
@@ -310,7 +310,7 @@ STYLE = """
 /* 사용법(튜토리얼): 장마다 움직이는 그림. 그림은 화면에 새로 그려질 때 한 번 재생된다 */
 [class*="st-key-home-guide-"] { margin: -20px 0 8px; }
 .st-key-home-tutorial button p { font-size: 15px; font-weight: 500; color: #8B95A1; }
-.st-key-home-guide-new .st-key-home-tutorial button p { font-weight: 600; color: #3182F6; }
+.st-key-home-guide-new .st-key-home-tutorial button p { font-weight: 600; color: #A85A17; }
 .st-key-tutorial-skip button p { color: #8B95A1; }
 .dc-tut-art { position: relative; height: 240px; margin: 4px 0 24px; border-radius: 24px; background: #F2F4F6;
               overflow: hidden; }
@@ -320,14 +320,14 @@ STYLE = """
                animation: dc-rise .4s .06s var(--dc-ease) both; }
 .dc-dots { display: flex; gap: 6px; justify-content: center; margin-top: 28px; }
 .dc-dots i { width: 6px; height: 6px; border-radius: 3px; background: #E5E8EB; }
-.dc-dots i.on { width: 18px; background: #3182F6; animation: dc-dot .3s var(--dc-ease) both; }
+.dc-dots i.on { width: 18px; background: #A85A17; animation: dc-dot .3s var(--dc-ease) both; }
 @keyframes dc-dot { from { width: 6px; } }
 @keyframes dc-pop-in { 0% { opacity: 0; transform: scale(.6); } 70% { opacity: 1; transform: scale(1.08); }
                        100% { opacity: 1; transform: none; } }
 /* 1장: 도구 이름이 하나씩 나올 때마다 가운데 그림이 그 도구로 바뀐다(회전하며 커짐). 이름표 줄은 가운데 정렬이라
    새 이름표의 자리가 0에서 넓어지면서 앞의 것들을 왼쪽으로 민다 */
 .dc-tool { position: absolute; top: 34px; left: 50%; width: 96px; height: 96px; margin-left: -48px; fill: none;
-           stroke: #3182F6; stroke-width: 3.8; stroke-linecap: round; stroke-linejoin: round; opacity: 0;
+           stroke: #A85A17; stroke-width: 3.8; stroke-linecap: round; stroke-linejoin: round; opacity: 0;
            animation: dc-tool-in .45s var(--dc-spring) var(--d) both,
                       dc-tool-out .2s var(--dc-ease) calc(var(--d) + .68s) forwards; }
 .dc-tool.last { animation: dc-tool-in .5s var(--dc-spring) var(--d) both; }
@@ -341,11 +341,12 @@ STYLE = """
 .dc-tool-name { display: flex; align-items: center; white-space: nowrap; padding: 6px 11px; border-radius: 12px;
                 font-size: 14px; font-weight: 600;
                 animation: dc-pop-in .45s var(--dc-spring) calc(var(--d) + .06s) both, dc-name-on .75s linear var(--d) both; }
-@keyframes dc-name-on { from, 85% { background: #3182F6; color: #FFFFFF; } to { background: #FFFFFF; color: #2A2A2A; } }
-.dc-tool-check { width: 0; overflow: hidden; opacity: 0; color: #3182F6;
+@keyframes dc-name-on { from, 85% { background: #A85A17; color: #FFFFFF; } to { background: #FFFFFF; color: #2A2A2A; } }
+.dc-tool-check { width: 0; overflow: hidden; opacity: 0; color: #A85A17;
                  animation: dc-check-in .3s var(--dc-ease) calc(var(--d) + .7s) both; }
 @keyframes dc-check-in { from { width: 0; opacity: 0; } to { width: 16px; opacity: 1; } }
-/* 2장: 축척 용지 위 가루를 선이 훑고 지나가면 알갱이마다 파란 테두리가 생기고, 대표 크기가 튀어나온다 */
+/* 2장: 축척 용지 위 가루를 선이 훑고 지나가면 알갱이마다 파란 테두리(실제 분석 화면과 같은 색)가 생기고,
+   대표 크기가 튀어나온다 */
 .dc-tut-paper { position: absolute; inset: 22px 32px; border-radius: 10px; background: #FFFFFF;
                 box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06); }
 .dc-tut-paper b { position: absolute; width: 12px; height: 12px; background: #2A2A2A; }
@@ -355,21 +356,21 @@ STYLE = """
            animation: dc-scan 1.6s .3s var(--dc-ease) both; }
 @keyframes dc-scan { from { left: 0; opacity: 1; } 90% { opacity: 1; } to { left: 100%; opacity: 0; } }
 .dc-tut-size { position: absolute; right: 12px; bottom: 12px; padding: 4px 12px; border-radius: 100px;
-               background: #3182F6; color: #FFFFFF; font-size: 14px; font-weight: 700;
+               background: #A85A17; color: #FFFFFF; font-size: 14px; font-weight: 700;
                animation: dc-pop-in .45s var(--dc-spring) 2s both; }
 /* 3장: 커피포트가 붓기 시간표를 4.5초에 지나간다. 파란 칸(붓는 때)에 닿으면 기울어 붓고, 칸이 끝날 때쯤 다시
    똑바로 선다. 칸은 포트가 지나가는 만큼 채워지고, 기울었을 때 주둥이 끝이 그 채워지는 끝 바로 위에 온다.
    기울기의 % 값은 TUTORIAL_POURS(4–18, 34–50, 64–80)에 맞춘 것이라 칸을 바꾸면 함께 바꾼다 */
 .dc-tut-track { position: absolute; left: 80px; right: 28px; top: 124px; height: 12px; border-radius: 6px;
                 background: #FFFFFF; }
-.dc-tut-pour { position: absolute; top: 0; bottom: 0; overflow: hidden; border-radius: 6px; background: #D6E8FF; }
-.dc-tut-pour::after { content: ""; position: absolute; inset: 0; background: #3182F6; transform-origin: left center;
+.dc-tut-pour { position: absolute; top: 0; bottom: 0; overflow: hidden; border-radius: 6px; background: #F3DCC4; }
+.dc-tut-pour::after { content: ""; position: absolute; inset: 0; background: #A85A17; transform-origin: left center;
                       animation: dc-fill var(--t) linear var(--d) both; }
 @keyframes dc-fill { from { transform: scaleX(0); } }
 .dc-tut-time { position: absolute; top: 22px; font-size: 13px; font-weight: 600; color: #8B95A1; white-space: nowrap; }
 .dc-tut-pourer { position: absolute; top: 0; left: 0; animation: dc-play 4.5s .3s linear both; }
 @keyframes dc-play { from { left: 0; } to { left: 100%; } }
-.dc-kettle { position: absolute; left: -61px; top: -86px; width: 64px; height: 64px; fill: none; stroke: #3182F6;
+.dc-kettle { position: absolute; left: -61px; top: -86px; width: 64px; height: 64px; fill: none; stroke: #A85A17;
              stroke-width: 3.4; stroke-linecap: round; stroke-linejoin: round; transform-origin: 50% 60%;
              animation: dc-kettle-tilt 4.5s .3s var(--dc-ease) both; }
 @keyframes dc-kettle-tilt { 0%, 2% { transform: none; } 5%, 16% { transform: rotate(30deg); } 20%, 32% { transform: none; }
@@ -396,7 +397,7 @@ STYLE = """
 .dc-toast-icon { flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center;
                  justify-content: center; color: #FFFFFF; font-size: 14px; font-weight: 800; background: #FFB800; }
 .dc-toast.error .dc-toast-icon { background: #F04452; }
-.dc-toast .dc-toast-icon.info { background: #3182F6; font-family: "Material Symbols Rounded"; font-weight: 400;
+.dc-toast .dc-toast-icon.info { background: #A85A17; font-family: "Material Symbols Rounded"; font-weight: 400;
                                 font-size: 15px; font-variation-settings: "FILL" 1; }
 @keyframes dc-toast {
   0% { opacity: 0; transform: translate(-50%, -48px); animation-timing-function: var(--dc-spring); }
