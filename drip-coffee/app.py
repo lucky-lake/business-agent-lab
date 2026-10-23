@@ -189,6 +189,7 @@ STYLE = """
 .dc-tile-label { font-size: 14px; color: #6B7684; }
 .dc-tile-value { font-size: 28px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; line-height: 1.25;
                  font-variant-numeric: tabular-nums; }
+.dc-tile-value.text { font-size: 20px; line-height: 1.4; }
 .dc-tile-value small { font-size: 16px; font-weight: 600; color: #4E5968; margin-left: 3px; letter-spacing: 0; }
 .dc-tile-sub { font-size: 13px; color: #8B95A1; margin-top: 2px; line-height: 1.4; }
 .dc-tile-effect { font-size: 12px; color: #874711; background: #FBEFE3; border-radius: 8px; padding: 5px 7px;
@@ -324,6 +325,12 @@ STYLE = """
 .dc-cup-score b { font-size: 17px; font-weight: 700; color: #2A2A2A; font-variant-numeric: tabular-nums; }
 .dc-cup.muted .dc-cup-score b { color: #B0B8C1; }
 .dc-cup-score small { display: block; font-size: 12px; color: #8B95A1; }
+.st-key-cup-list { gap: 0; }
+[class*="st-key-row-cup-"] .dc-cup { margin: 0 -8px; padding: 12px 8px; border-bottom: none; border-radius: 14px;
+                                     transition: background-color .1s ease-in-out, transform .2s var(--dc-spring); }
+[class*="st-key-row-cup-"]:hover .dc-cup { background: #F9FAFB; }
+[class*="st-key-row-cup-"]:has(button:active) .dc-cup { transform: scale(.98); }
+.dc-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 4px 0 10px; }
 
 /* 사용법(튜토리얼): 장마다 움직이는 그림. 그림은 화면에 새로 그려질 때 한 번 재생된다 */
 [class*="st-key-home-guide-"] { margin: -20px 0 8px; }
@@ -495,7 +502,8 @@ def tile(icon, label, value, unit="", sub="", effect=""):
     """아이콘 요약 카드의 한 칸. icon은 Material Symbols 이름(예: grain, water_drop). effect는 이 값이 맛에 주는 영향."""
     return (f'<div class="dc-tile"><span class="dc-icon" aria-hidden="true">{icon}</span>'
             f'<div class="dc-tile-label">{escape(label)}</div>'
-            f'<div class="dc-tile-value">{counted(value)}<small>{escape(unit)}</small></div>'
+            f'<div class="dc-tile-value{"" if any(ch.isdigit() for ch in value) else " text"}">'  # 글 값은 작게
+            f'{counted(value)}<small>{escape(unit)}</small></div>'
             + (f'<div class="dc-tile-sub">{escape(sub)}</div>' if sub else "")
             + (f'<div class="dc-tile-effect">{escape(effect)}</div>' if effect else "") + "</div>")
 
@@ -505,7 +513,7 @@ def summary(*tiles):
     html('<div class="dc-summary">' + "".join(tiles) + "</div>")
 
 
-def pour_timeline(recipe, end_s=None):
+def pour_timeline(recipe, end_s=None, end_label="끊김 예상"):
     """붓기 일정을 가로 막대로 그린다. 막대 위치는 붓는 시각, 길이는 붓는 양(붓는 속도로 걸리는 시간)이다.
     위에는 붓는 양, 아래에는 시각과 저울에 보일 누적을 적고, end_s를 주면 물줄기가 끊길 것으로 보는 시각을 표시한다.
     글 목록보다 한눈에 들어오게 바꿨다 (10/20 사용자 요청)."""
@@ -526,7 +534,7 @@ def pour_timeline(recipe, end_s=None):
                      f'<div class="dc-tl-c">{below}</div></div>')
         spoken.append(f"{clock(p.start_s)}에 {p.grams:g} g")
     if end_s:
-        parts.append(f'<div class="dc-tl-end" style="left:{pct(end_s):.2f}%"><span>끊김 예상 {clock(end_s)}</span></div>')
+        parts.append(f'<div class="dc-tl-end" style="left:{pct(end_s):.2f}%"><span>{end_label} {clock(end_s)}</span></div>')
     label = "붓기 일정: " + ", ".join(spoken) + (f", 물줄기는 {clock(end_s)}쯤 끊겨요" if end_s else "")
     html(f'<div class="dc-tl" role="img" aria-label="{escape(label)}">{"".join(parts)}</div>')
 
@@ -912,10 +920,11 @@ def axis(title):
                     titleColor=GRAY, titleFontSize=13, titleFontWeight=500, tickCount=6)
 
 
-def preference_chart(points, target):
+def preference_chart(points, target, pick=None):
     """잔마다 (추출수율, 가수 후 농도)를 점으로 찍고, 골든컵 범위와 다음 잔 목표를 함께 그린다.
-    좋았던 잔(가중치 > 0)은 파랗게, 점수가 높을수록 진하게 칠하고, 나머지는 회색으로 둔다.
-    축 이름에 '오른쪽일수록 더 우러나요', '위일수록 진해요'를 붙여 숫자를 몰라도 읽히게 한다."""
+    좋았던 잔(가중치 > 0)은 강조색으로, 점수가 높을수록 진하게 칠하고, 나머지는 회색으로 둔다.
+    축 이름에 '오른쪽일수록 더 우러나요', '위일수록 진해요'를 붙여 숫자를 몰라도 읽히게 한다.
+    pick(altair 선택)을 주면 점을 눌러 그 잔을 고를 수 있다."""
     (ey_low, ey_high), (tds_low, tds_high) = GOLDEN_CUP_BOX
     cups = pd.DataFrame(
         {
@@ -936,7 +945,7 @@ def preference_chart(points, target):
     layers += alt.Chart(box).mark_text(align="left", baseline="top", dx=10, dy=10, fontSize=12, color=GRAY, font=FONT).encode(
         x="ey:Q", y="tds2:Q", text="label:N")
     if not cups.empty:
-        layers += alt.Chart(cups).mark_circle(size=150, stroke="#FFFFFF", strokeWidth=1.5).encode(
+        dots = alt.Chart(cups).mark_circle(size=150, stroke="#FFFFFF", strokeWidth=1.5).encode(
             x=x, y=y,
             color=alt.Color("kind:N", scale=alt.Scale(domain=list(CUP_KINDS), range=[BRAND, GRAY_LIGHT]), legend=None),
             opacity=alt.Opacity("weight:Q", scale=alt.Scale(domain=[0, 2.5], range=[0.45, 1]), legend=None),
@@ -944,6 +953,9 @@ def preference_chart(points, target):
                      alt.Tooltip("score:Q", title="만족도"), alt.Tooltip("ey:Q", title="추출수율 (%)", format=".1f"),
                      alt.Tooltip("tds:Q", title="가수 후 농도 (%)", format=".2f")],
         )
+        if pick is not None:
+            dots = dots.add_params(pick)
+        layers += dots
     goal = pd.DataFrame({"ey": [target.ey_pct], "tds": [target.tds_pct], "label": ["다음 잔 목표"]})
     layers += alt.Chart(goal).mark_point(shape="diamond", color=BRAND, size=220, filled=True, opacity=1).encode(
         x=x, y=y, tooltip=[alt.Tooltip("label:N", title="표시"), alt.Tooltip("ey:Q", title="추출수율 (%)", format=".1f"),
@@ -964,31 +976,121 @@ def history_summary(brews, target):
     )
 
 
-def cup_list(brews):
-    """기록한 잔을 날짜별로, 최근 것부터. 표시(막힘 등)가 있는 잔은 흐리게, 사진이 없는 잔은 꼬리표를 단다.
-    오른쪽은 만족도와 진하기 답. 모든 칸은 '표로 자세히 보기'에 둔다."""
-    if not brews:
-        notice("아직 기록한 잔이 없어요. 한 잔 내리고 맛을 매기면 여기에 쌓여요.")
-        return
-    parts, day = [], None
-    for b in reversed(brews):
-        if b.date != day:
-            day = b.date
-            parts.append(f'<div class="dc-cups-date">{escape(short_date(day))}</div>')
-        tags = ([b.flag] if b.flag else []) + ([] if b.grind_d50_um is not None else ["사진 없음"])
-        sub = " · ".join(x for x in (f"{b.grinder_clicks}클릭" if b.grinder_clicks is not None else "",
-                                     f"{b.water_temp_c:g}°C", clock(b.drawdown_end_s) if b.drawdown_end_s else "") if x)
-        strength = STRENGTH_CHOICES.get(b.strength, "")
-        parts.append(
-            f'<div class="dc-cup{" muted" if b.flag else ""}"><span class="dc-avatar">{escape(b.bean_id)}</span>'
+def cup_markup(b):
+    """잔 한 줄: 원두, 클릭·온도·물 빠짐, 오른쪽에 만족도와 진하기 답. 표시(막힘 등)가 있으면 흐리게, 사진이 없으면 꼬리표."""
+    tags = ([b.flag] if b.flag else []) + ([] if b.grind_d50_um is not None else ["사진 없음"])
+    sub = " · ".join(x for x in (f"{b.grinder_clicks}클릭" if b.grinder_clicks is not None else "",
+                                 f"{b.water_temp_c:g}°C", clock(b.drawdown_end_s) if b.drawdown_end_s else "") if x)
+    strength = STRENGTH_CHOICES.get(b.strength, "")
+    return (f'<div class="dc-cup{" muted" if b.flag else ""}"><span class="dc-avatar">{escape(b.bean_id)}</span>'
             f'<span class="dc-cup-text"><b>{escape(b.row.get("bean_name", "") or b.bean_id)}</b>'
             + "".join(f'<span class="dc-cup-tag">{escape(t)}</span>' for t in tags)
             + f'<small>{escape(sub)}</small></span><span class="dc-cup-score">'
             f'<b>{cell(b.quality_score, "{:.2f}")}</b>' + (f"<small>{escape(strength)}</small>" if strength else "")
-            + "</span></div>")
-    html('<div class="dc-cups">' + "".join(parts) + "</div>")
+            + '</span><span class="dc-lrow-chev" aria-hidden="true">chevron_right</span></div>')
+
+
+def open_cup(brew_id):
+    st.session_state["history-open"] = brew_id
+
+
+def cup_list(brews):
+    """기록한 잔을 날짜별로, 최근 것부터. 줄을 누르면 그 잔을 자세히 본다. 모든 칸은 '표로 자세히 보기'에 둔다."""
+    if not brews:
+        notice("아직 기록한 잔이 없어요. 한 잔 내리고 맛을 매기면 여기에 쌓여요.")
+        return
+    with st.container(key="cup-list"):
+        day = None
+        for b in reversed(brews):
+            if b.date != day:
+                day = b.date
+                html(f'<div class="dc-cups-date">{escape(short_date(day))}</div>')
+            list_row(f"cup-{b.brew_id}", cup_markup(b), f"{short_date(b.date)} {b.bean_id} 잔 자세히 보기", open_cup, (b.brew_id,))
     with st.expander("표로 자세히 보기"):
         recent_brews_table(brews, limit=len(brews))
+
+
+BEAN_COLORS = (BRAND, "#5B7FA6", "#6E8F4E", "#B5838D", "#8A6FB0", "#C9A227")  # 맛 변화 그림의 원두별 색
+
+
+def opened_from_chart(event, name):
+    """그래프에서 누른 잔을 연다. 같은 선택으로 다시 그릴 때 창이 또 열리지 않게 마지막으로 연 선택을 기억한다."""
+    picked = [p.get("brew_id") for p in (event.selection.get(name) or [])] if event else []
+    if picked and picked != st.session_state.get(f"{name}-last"):
+        st.session_state[f"{name}-last"] = picked
+        open_cup(picked[0])
+    elif not picked:
+        st.session_state.pop(f"{name}-last", None)
+
+
+def taste_trend(brews):
+    """잔마다 만족도를 기록한 순서대로 찍는다. 원두마다 색을 달리하고 표시 잔은 회색. 처음 3잔과 최근 3잔 평균을 함께."""
+    cups = [b for b in brews if b.quality_score is not None]
+    if not cups:
+        notice("아직 맛을 매긴 잔이 없어요.")
+        return
+    beans = list(dict.fromkeys(b.bean_id for b in cups))
+    data = pd.DataFrame({"n": i + 1, "brew_id": b.brew_id, "day": short_date(b.date), "bean": b.bean_id,
+                         "color": "막힘·연습" if b.flag else b.bean_id, "score": round(b.quality_score, 2)}
+                        for i, b in enumerate(cups))
+    x_axis = axis("잔 (오래된 → 최근)")
+    x_axis.tickMinStep = 1
+    x = alt.X("n:Q", axis=x_axis, scale=alt.Scale(domain=[0.5, len(cups) + 0.5]))
+    y = alt.Y("score:Q", axis=axis("만족도"), scale=alt.Scale(domain=[1, 5]))
+    band = alt.Chart(pd.DataFrame({"low": [3], "high": [5]})).mark_rect(color="#FBEFE3", opacity=0.6).encode(
+        y=alt.Y("low:Q", scale=alt.Scale(domain=[1, 5])), y2="high:Q")
+    line = alt.Chart(data[data["color"] != "막힘·연습"]).mark_line(color="#D9A877", strokeWidth=2).encode(x=x, y=y)
+    pick = alt.selection_point(name="trend", fields=["brew_id"], on="click")
+    dots = alt.Chart(data).mark_circle(size=170, stroke="#FFFFFF", strokeWidth=2, opacity=1).encode(
+        x=x, y=y,
+        color=alt.Color("color:N", legend=None, scale=alt.Scale(domain=beans + ["막힘·연습"],
+                                                                range=list(BEAN_COLORS[:len(beans)]) + [GRAY_LIGHT])),
+        tooltip=[alt.Tooltip("day:N", title="날짜"), alt.Tooltip("bean:N", title="원두"), alt.Tooltip("score:Q", title="만족도")],
+    ).add_params(pick)
+    chart = (band + line + dots).properties(height=260).configure_view(stroke=None).configure(font=FONT)
+    opened_from_chart(st.altair_chart(chart, width="stretch", on_select="rerun", key="trend-chart"), "trend")
+    html('<div class="dc-legend">' + "".join(f'<span><i class="dc-dot" style="background:{BEAN_COLORS[i]}"></i>{escape(bean)}</span>'
+                                             for i, bean in enumerate(beans))
+         + f'<span><i class="dc-dot" style="background:{GRAY_LIGHT}"></i>막힘·연습</span></div>')
+    normal = [b.quality_score for b in cups if not b.flag]
+    if len(normal) >= 2:
+        first, recent = normal[:3], normal[-3:]
+        summary(tile("history", "처음 3잔 평균", f"{sum(first) / len(first):.2f}", "", "만족도"),
+                tile("trending_up", "최근 3잔 평균", f"{sum(recent) / len(recent):.2f}", "", "만족도"))
+    html('<div class="dc-caption">옅은 띠는 만족도 3 이상이에요. 점을 누르면 그 잔을 자세히 봐요.</div>')
+
+
+@st.dialog("잔 자세히", width="medium")
+def cup_detail(brew_id):
+    """기록한 잔 하나: 예측과 실제, 만족도와 진하기, 맛 육각형, 붓기 일정, 메모, 같은 원두로 다음 잔."""
+    brews = cal.load_brews(BREWS_PATH)
+    b = next((x for x in brews if x.brew_id == brew_id), None)
+    if b is None:
+        notice("이 잔을 찾지 못했어요.")
+        return
+    c = next((x for x in cal.compare_with_log(brews) if x.brew.brew_id == brew_id), None)
+    size = f"{b.grind_d50_um:.0f} µm" if b.grind_d50_um else "사진 없음"
+    html(f'<div class="dc-done-title">{escape(b.bean_id)} {escape(b.row.get("bean_name", ""))}</div>'
+         f'<div class="dc-done-sub">{escape(short_date(b.date))} · {escape(b.row.get("roast_level", ""))} · '
+         + (f"{b.grinder_clicks}클릭 · " if b.grinder_clicks is not None else "") + escape(size)
+         + (f" · {escape(b.flag)}" if b.flag else "") + "</div>")
+    summary(
+        tile("timer", "물줄기 끊김", clock(b.drawdown_end_s), "",
+             versus_time(c.prediction.drawdown_end_s, b.drawdown_end_s) if c and b.drawdown_end_s else "예측과 비교할 수 없어요"),
+        tile("local_cafe", "음료 (가수 전)", cell(b.beverage_g), "g",
+             versus_grams(c.prediction.beverage_g, b.beverage_g) if c and b.beverage_g else "예측과 비교할 수 없어요"),
+        tile("star", "만족도", cell(b.quality_score, "{:.2f}"), "", "맛 4항목 평균"),
+        tile("coffee", "진하기", STRENGTH_CHOICES.get(b.strength, "–"), "", f"가수 {b.bypass_g:g} g"),
+    )
+    st.markdown(taste_hexagon(b.taste, compact=True), unsafe_allow_html=True)  # SVG라서 markdown
+    section("붓기", f"{b.water_temp_c:g} °C · 물 {b.recipe().water_g:g} g")
+    pour_timeline(b.recipe(), b.drawdown_end_s, "끊김")
+    memo = (b.memo or "").split("앱 예측(내리기 전)")[0].strip()
+    if memo:
+        html(f'<div class="dc-notice">{escape(memo)}</div>')
+    if st.button("이 원두로 다음 잔", type="primary", width="stretch", key="cup-detail-next"):
+        brew_same_bean(b)
+        st.rerun()
 
 
 def preference_section(brews, points, target):
@@ -997,9 +1099,11 @@ def preference_section(brews, points, target):
         notice("아직 맛을 매긴 잔이 없어서 골든컵(많은 사람이 대체로 좋아하는 범위)의 가운데를 목표로 써요. "
                "잔을 내리고 맛을 매길수록 목표가 내 입맛 쪽으로 옮겨 가요.")
         return
-    html('<div class="dc-caption">점 하나가 기록한 한 잔이에요. 파란 점이 좋았던 잔, ◆가 다음 잔 목표예요. '
-         "굴절계로 잰 값이 아니라 모델로 계산한 위치예요.</div>")
-    st.altair_chart(preference_chart(points, target), width="stretch")
+    html('<div class="dc-caption">점 하나가 기록한 한 잔이에요. 진한 점이 좋았던 잔, ◆가 다음 잔 목표예요. '
+         "점을 누르면 그 잔을 자세히 봐요. 굴절계로 잰 값이 아니라 모델로 계산한 위치예요.</div>")
+    pick = alt.selection_point(name="preference", fields=["brew_id"], on="click")
+    opened_from_chart(st.altair_chart(preference_chart(points, target, pick), width="stretch", on_select="rerun",
+                                      key="preference-chart"), "preference")
     html(PREFERENCE_LEGEND)
     with st.expander("목표는 어떻게 정해져요?"):
         center = target.personal_center
@@ -2482,19 +2586,31 @@ def tutorial_page():
 
 
 def history_page():
-    """내 기록: 요약 카드 아래 '기록한 잔'(날짜별 목록)과 '내 선호 영역'(그림) 두 보기, 그리고 흐름 밖에서 내린 잔을
-    적는 '직접 기록하기'. 예전에는 긴 설명, 큰 카드 셋, 열이 11개인 표를 한 화면에 이어 붙였다."""
+    """내 기록: 요약 카드, 원두 칩, '기록한 잔 | 맛 변화 | 내 선호 영역' 세 보기, 직접 기록하기. 잔이나 점을 누르면 자세히."""
     brews = cal.load_brews(BREWS_PATH)
     page_header("history", "내 기록", f"{len(brews)}잔을 기록했어요." if brews else "아직 기록한 잔이 없어요.")
     points = rec.brew_points(brews)
     target = rec.preference_target(points)
     history_summary(brews, target)
-    views = ["기록한 잔", "내 선호 영역"]
-    view = st.segmented_control("보기", views, default=views[0], key="history-view", label_visibility="collapsed")
-    if (view or views[0]) == views[0]:
-        cup_list(brews)
+    views = ["기록한 잔", "맛 변화", "내 선호 영역"]
+    view = st.segmented_control("보기", views, default=views[0], key="history-view", label_visibility="collapsed") or views[0]
+    beans = list(dict.fromkeys(b.bean_id for b in brews))
+    names = {b.bean_id: b.row.get("bean_name", "") for b in brews}
+    bean = "전체"
+    if len(beans) > 1:
+        bean = st.pills("원두", ["전체", *beans], default="전체", required=True, key="history-bean",
+                        label_visibility="collapsed",
+                        format_func=lambda x: x if x == "전체" else f"{x} {names[x].split(' ')[0]}") or "전체"
+    shown = brews if bean == "전체" else [b for b in brews if b.bean_id == bean]
+    if view == views[0]:
+        cup_list(shown)
+    elif view == views[1]:
+        taste_trend(shown)
     else:
-        preference_section(brews, points, target)
+        preference_section(shown, [p for p in points if bean == "전체" or p.bean_id == bean], target)
+    opened = st.session_state.pop("history-open", None)
+    if opened:
+        cup_detail(opened)
     writing = "log_prefill" in st.session_state or "log_saved" in st.session_state
     with st.expander("직접 기록하기", expanded=writing, icon=":material/edit_note:"):
         log_form()

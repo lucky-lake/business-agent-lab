@@ -105,6 +105,16 @@ def test_history_lists_cups_by_day_and_shows_the_preference_chart(monkeypatch, m
     next(w for w in at.get("button_group") if w.key == "history-view").set_value("내 선호 영역").run()
     assert not at.exception and has_text(at, "다음 잔 목표") and not has_text(at, "골든컵 중심</span>")
     assert has_text(at, "내 선호 중심")  # 그림에서 뺀 중심 값은 '목표는 어떻게 정해져요?'에 글로 남는다
+    # 맛 변화: 처음 3잔과 최근 3잔 평균
+    next(w for w in at.get("button_group") if w.key == "history-view").set_value("맛 변화").run()
+    assert not at.exception and has_text(at, "처음 3잔 평균") and has_text(at, "최근 3잔 평균")
+    # 원두 칩: 고른 원두의 잔만, 줄마다 누르는 버튼이 있다
+    next(w for w in at.get("button_group") if w.key == "history-view").set_value("기록한 잔").run()
+    next(w for w in at.get("button_group") if w.key == "history-bean").set_value("B01").run()
+    cup_buttons = [b for b in at.button if (b.key or "").startswith("cup-")]
+    assert not at.exception and len(cup_buttons) == sum(1 for b in brews if b.bean_id == "B01")
+    cup_buttons[0].click().run()  # 누르면 자세히 창이 열린다 (창 안은 브라우저에서 확인)
+    assert not at.exception
 
 
 def test_same_bean_row_fills_the_last_bean_but_not_the_filter(monkeypatch, my_files):
