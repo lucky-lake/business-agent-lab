@@ -154,6 +154,18 @@ def test_base_recipes_are_used_when_a_roast_group_has_no_records():
     assert rec.roast_group("미디엄") == rec.roast_group("미디엄 라이트") == "그 밖"
 
 
+def test_todays_intent_moves_only_this_cups_target(brews, beans):
+    # '평소대로'는 목표 그대로라 동결한 추천과 같고, 진하게·연하게는 농도만, 우러나게·산뜻하게는 추출수율만 옮긴다
+    assert rec.with_intent(TARGET, "평소대로") == TARGET
+    assert rec.with_intent(TARGET, "더 진하게").tds_pct == pytest.approx(TARGET.tds_pct * 1.1)
+    assert rec.with_intent(TARGET, "더 우러나게").ey_pct == pytest.approx(TARGET.ey_pct + 1)
+    usual = rec.recommend_recipe(TARGET, beans["B02"], brews)
+    stronger = rec.recommend_recipe(rec.with_intent(TARGET, "더 진하게"), beans["B02"], brews)
+    brighter = rec.recommend_recipe(rec.with_intent(TARGET, "더 산뜻하게"), beans["B02"], brews)
+    assert stronger.recipe.bypass_g < usual.recipe.bypass_g  # 진하게: 물을 덜 탄다
+    assert brighter.d50_um > usual.d50_um  # 산뜻하게: 덜 우러나게 더 굵게
+
+
 def test_refit_keeps_the_recipe_when_the_grind_came_out_as_recommended(brews, beans):
     r = rec.recommend_recipe(TARGET, beans["B02"], brews)
     fit = rec.refit_to_grind(r, r.d50_um, TARGET)

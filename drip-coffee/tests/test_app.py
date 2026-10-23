@@ -177,6 +177,16 @@ def test_bean_starts_blank_and_must_be_chosen(monkeypatch, my_files):
     at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백").run()
     button(at, "flow-next-1").click().run()
     assert not at.exception and has_text(at, "2 / 6 단계") and has_text(at, "목표 분쇄")
+    # 2단계: 근거 칩, 베이스에서 바뀐 것, 값마다 영향 한 줄, '이렇게 바꾸면?'
+    assert has_text(at, "문헌 비교 13/14 통과") and has_text(at, "베이스에서 이렇게 바꿨어요")
+    assert has_text(at, "곱게 갈수록 더 우러나고")
+    assert has_text(at, "추천과 같아요")
+    coarsest = min(round(at.session_state["flow"]["target_d50_um"] / 50) * 50 + 300, 1800)
+    next(s for s in at.select_slider if s.key == "whatif-grind-평소대로").set_value(coarsest).run()  # 가장 굵게
+    assert not at.exception and has_text(at, "덜 우러나요")
+    # 오늘은 어떻게?: '더 진하게'를 고르면 이번 잔의 가수가 줄고, 기록에도 남는다
+    next(w for w in at.get("button_group") if w.key == "flow-intent").set_value("더 진하게").run()
+    assert not at.exception and at.session_state["flow"]["intent"] == "더 진하게" and has_text(at, "오늘은 &#x27;더 진하게&#x27;")
 
 
 def test_grind_step_asks_for_a_photo_and_can_go_on_without_one(monkeypatch, my_files):

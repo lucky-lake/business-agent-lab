@@ -7,7 +7,7 @@
 """
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from dripcoffee.calibration import grind_sizes, roast_name
 from dripcoffee.extraction_model import (DEFAULT_PARAMS, Pour, Recipe, RecipeError, grind_from_d50, parse_pours,
@@ -129,6 +129,7 @@ class Usual:
     pattern: tuple  # 뜸 뒤 붓기마다 원두의 몇 배인지. 예: (3, 3, 3)
     interval_s: float  # 붓기 간격
     source: str  # 어디서 가져왔는지 (화면 설명용)
+    brew_id: str = ""  # 가져온 잔. 기본 레시피면 빈 값
 
 
 @dataclass
@@ -234,16 +235,28 @@ def usual_recipe(bean, brews):
     if same:
         b = same[-1]
         return Usual(b.recipe().water_g / b.dose_g, b.water_temp_c, pattern_of(b.pours, b.dose_g)[0], usual_interval(b),
-                     f"같은 원두의 마지막 잔 {b.brew_id}")
+                     f"같은 원두의 마지막 잔 {b.brew_id}", b.brew_id)
     group = roast_group(bean.get("roast_level", ""))
     alike = [b for b in normal if roast_group(b.row.get("roast_level", "")) == group]
     if alike:
         b = alike[-1]
         return Usual(b.recipe().water_g / b.dose_g, (low + high) / 2, pattern_of(b.pours, b.dose_g)[0], usual_interval(b),
                      f"이 원두는 기록이 없어 같은 배전도 묶음({group})의 마지막 잔 {b.brew_id}의 물 양·붓기와 "
-                     "배전도 범위 가운데 온도")
+                     "배전도 범위 가운데 온도", b.brew_id)
     ratio, pattern, interval = BASE_RECIPES[group]
     return Usual(ratio, (low + high) / 2, pattern, interval, f"기록이 없어 {group} 기본 레시피")
+
+
+# 이번 잔만의 요청 → (목표 추출수율에 더할 %p, 목표 농도에 곱할 배수). 농도 배수는 진하기 답(STRENGTH_SHIFT)과 같은 크기,
+# 추출수율 1%p는 분쇄 약 80 µm만큼이다. '평소대로'면 목표가 그대로라 동결한 추천과 같다
+INTENTS = {"평소대로": (0.0, 1.0), "더 진하게": (0.0, 1.10), "더 연하게": (0.0, 0.90), "더 우러나게": (1.0, 1.0),
+           "더 산뜻하게": (-1.0, 1.0)}
+
+
+def with_intent(target, intent):
+    """이번 잔의 목표에 오늘의 요청을 더한다. 기록에서 배우는 목표(preference_target)는 바꾸지 않는다."""
+    ey_shift, tds_scale = INTENTS[intent]
+    return replace(target, ey_pct=target.ey_pct + ey_shift, tds_pct=target.tds_pct * tds_scale)
 
 
 def clog_limit(bean_id, brews):

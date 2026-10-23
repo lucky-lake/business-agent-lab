@@ -191,6 +191,14 @@ STYLE = """
                  font-variant-numeric: tabular-nums; }
 .dc-tile-value small { font-size: 16px; font-weight: 600; color: #4E5968; margin-left: 3px; letter-spacing: 0; }
 .dc-tile-sub { font-size: 13px; color: #8B95A1; margin-top: 2px; line-height: 1.4; }
+.dc-tile-effect { font-size: 12px; color: #874711; background: #FBEFE3; border-radius: 8px; padding: 5px 7px;
+                  margin-top: 8px; line-height: 1.4; }
+.dc-summary.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.dc-evidence { display: flex; flex-wrap: wrap; gap: 6px; margin: -16px 0 4px; }
+.dc-evidence span { font-size: 12px; font-weight: 600; padding: 5px 10px; border-radius: 100px; background: #FBEFE3;
+                    color: #874711; }
+.dc-verdict { font-size: 14px; line-height: 1.5; margin: 4px 0 8px; padding: 10px 12px; border-radius: 12px;
+              background: #FBEFE3; color: #874711; }
 
 /* 붓기 타임라인: 막대 위치는 붓는 시각, 길이는 붓는 양. 위는 붓는 양, 아래는 시각과 저울에 보일 누적.
    글자는 화면 크기와 상관없이 같은 크기로 보이게 SVG가 아니라 위치를 %로 둔 상자로 그린다. 막대는 차례로 자란다 */
@@ -223,6 +231,16 @@ STYLE = """
 .dc-chip .dc-icon { width: 24px; height: 24px; font-size: 15px; margin: 0; background: #FFFFFF; }
 /* 진하기: 세 가지를 아이콘이 있는 큰 선택 카드로 */
 .st-key-flow-strength [data-testid="stButtonGroup"] > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+/* 2단계 '오늘은 어떻게?': 진하기 카드와 같은 모양으로 다섯 칸 */
+.st-key-flow-intent [data-testid="stButtonGroup"] > div { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.st-key-flow-intent button { min-height: 68px; padding: 6px 2px; border-radius: 14px !important;
+                             border: 1px solid #E5E8EB !important; background: #FFFFFF; }
+.st-key-flow-intent button p { font-size: 13px; font-weight: 600; line-height: 1.3; }
+.st-key-flow-intent button [data-testid="stIconMaterial"] { font-size: 20px; }
+.st-key-flow-intent button div > span { flex-direction: column; align-items: center; gap: 2px; }  /* 아이콘 위, 글자 아래 */
+.st-key-flow-intent button, .st-key-flow-intent button div, .st-key-flow-intent button p {
+  overflow: visible; white-space: normal; text-overflow: clip; word-break: keep-all; text-align: center; }
+.st-key-flow-intent button[aria-checked="true"] { border: 2px solid #A85A17 !important; background: #FBEFE3; color: #874711; }
 .st-key-flow-strength button { min-height: 76px; border-radius: 16px !important; border: 1px solid #E5E8EB !important;
                                background: #FFFFFF; }
 .st-key-flow-strength button p { font-size: 15px; font-weight: 600; }
@@ -473,12 +491,13 @@ def card(label, value, unit, sub="", hero=False):
     )
 
 
-def tile(icon, label, value, unit="", sub=""):
-    """아이콘 요약 카드의 한 칸. icon은 Material Symbols 이름(예: grain, water_drop)."""
+def tile(icon, label, value, unit="", sub="", effect=""):
+    """아이콘 요약 카드의 한 칸. icon은 Material Symbols 이름(예: grain, water_drop). effect는 이 값이 맛에 주는 영향."""
     return (f'<div class="dc-tile"><span class="dc-icon" aria-hidden="true">{icon}</span>'
             f'<div class="dc-tile-label">{escape(label)}</div>'
             f'<div class="dc-tile-value">{counted(value)}<small>{escape(unit)}</small></div>'
-            + (f'<div class="dc-tile-sub">{escape(sub)}</div>' if sub else "") + "</div>")
+            + (f'<div class="dc-tile-sub">{escape(sub)}</div>' if sub else "")
+            + (f'<div class="dc-tile-effect">{escape(effect)}</div>' if effect else "") + "</div>")
 
 
 def summary(*tiles):
@@ -1382,10 +1401,11 @@ def new_recipe_view(brews):
 
 
 @st.cache_data(show_spinner=False, max_entries=20)
-def cached_recommendation(bean_id, dose_g, log_version):
-    """추천은 0.1–2초 걸려서, 기록 파일이 바뀌지 않았으면(log_version) 지난 결과를 다시 쓴다."""
+def cached_recommendation(bean_id, dose_g, log_version, intent="평소대로"):
+    """추천은 0.1–2초 걸려서, 기록 파일이 바뀌지 않았으면(log_version) 지난 결과를 다시 쓴다.
+    intent는 이번 잔만의 요청(rec.INTENTS)이다."""
     brews = cal.load_brews(BREWS_PATH)
-    target = rec.preference_target(rec.brew_points(brews))
+    target = rec.with_intent(rec.preference_target(rec.brew_points(brews)), intent)
     return target, rec.recommend_recipe(target, cal.load_beans(BEANS_PATH)[bean_id], brews, dose_g)
 
 
@@ -1726,14 +1746,117 @@ def flow_equipment(flow):
         go_to(2)
 
 
+LITERATURE_PASSED = (13, 14)  # 문헌 비교 판정 통과 수 / 전체 (MODEL.md 6절)
+INTENT_ICONS = {"평소대로": "coffee", "더 진하게": "dark_mode", "더 연하게": "water_drop",
+                "더 우러나게": "local_fire_department", "더 산뜻하게": "eco"}
+EFFECTS = {  # 레시피 값이 맛에 주는 영향 (모델의 방향 테스트와 같은 방향, MODEL.md 6절)
+    "분쇄": "곱게 갈수록 더 우러나고 물이 늦게 빠져요",
+    "물 온도": "높일수록 더 우러나요 · 쓴맛과 바디가 늘어요",
+    "물": "많이 부을수록 더 우러나지만 묽어져요",
+    "가수": "많이 탈수록 연해져요 · 우러난 정도는 그대로",
+}
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def drawdown_error_s(log_version):
+    """표시 없는 잔의 끊김 예측 오차 크기 평균(초). 기록이 없으면 None."""
+    comparisons = [c for c in cal.compare_with_log(cal.load_brews(BREWS_PATH)) if not c.brew.flag]
+    errors = [abs(c.end_error_s) for c in comparisons if c.end_error_s is not None]
+    return sum(errors) / len(errors) if errors else None
+
+
+def evidence_chips(brews):
+    """추천이 무엇에 기대는지: 내 기록, 예측 오차, 문헌 비교."""
+    error = drawdown_error_s(BREWS_PATH.stat().st_mtime)
+    chips = [f"내 기록 {len(brews)}잔 반영" if brews else "기록이 없어 골든컵에서 시작",
+             *([f"예측 오차 평균 {error:.0f}초"] if error is not None else []),
+             f"문헌 비교 {LITERATURE_PASSED[0]}/{LITERATURE_PASSED[1]} 통과"]
+    html('<div class="dc-evidence">' + "".join(f"<span>✓ {escape(c)}</span>" for c in chips) + "</div>")
+
+
+def base_changes(r, hint, target, brews, intent):
+    """베이스(평소 레시피와 그 잔)에서 무엇을 왜 바꿨는지 줄마다."""
+    cup = next((b for b in brews if b.brew_id == r.usual.brew_id), None)
+    recipe, usual = r.recipe, r.usual
+    low, high = r.temp_range
+    rows = [
+        change_row("device_thermostat", "물 온도", usual.temp_c, recipe.water_temp_c, "°C", f"배전도 범위 {low}–{high} °C 안"),
+        change_row("water_drop", "물", usual.water_ratio * recipe.dose_g, recipe.water_g, "g",
+                   f"원두의 {r.water_ratio}배 · {rec.pattern_text(r.pattern)}배 · {r.interval_s:g}초 간격"),
+    ]
+    if cup and cup.grinder_clicks is not None and hint and hint.clicks is not None:
+        rows.append(change_row("grain", "분쇄", cup.grinder_clicks, hint.clicks, "클릭",
+                               f"목표 추출수율 {target.ey_pct:.1f}%에 맞춰 · {grind_feel(r.d50_um)}"))
+    if cup:
+        rows.append(change_row("water_full", "가수", cup.bypass_g, recipe.bypass_g, "g",
+                               f"목표 농도 {target.tds_pct:.2f}%에 맞춰"
+                               + (f" · 오늘은 '{intent}'" if intent != "평소대로" else "")))
+    html('<div class="dc-change">' + "".join(rows) + "</div>")
+    where = (f"{short_date(cup.date)} {cup.bean_id} {cup.row.get('bean_name', '')} 잔".strip() if cup else "기본 레시피")
+    same = cup is not None and r.usual.source.startswith("같은 원두")
+    html(f'<div class="dc-caption" style="margin-top:8px">베이스: {escape(base_name(usual))} · {escape(where)}'
+         + ("" if same or not cup else " (기록이 없는 원두라 같은 배전도 묶음의 마지막 잔)") + "</div>")
+
+
+def reset_what_if(keys):
+    for key in keys:
+        st.session_state.pop(key, None)
+
+
+def what_if(r, target, intent):
+    """분쇄와 온도만 바꿔 모델로 다시 계산해 본다 (붓기와 가수는 그대로). 레시피는 바꾸지 않는다."""
+    section("이렇게 바꾸면?", "모델로 바로 계산해요. 붓기와 가수는 그대로 두고 분쇄와 온도만 바꿔 봐요.")
+    center = int(round(r.d50_um / 50) * 50)
+    sizes = [d for d in range(center - 300, center + 301, 50) if 700 <= d <= 1800]
+    low, high = r.temp_range
+    temps = list(range(min(low, int(r.recipe.water_temp_c)), max(high, int(r.recipe.water_temp_c)) + 1))
+    keys = (f"whatif-grind-{intent}", f"whatif-temp-{intent}")
+    grind = st.select_slider("분쇄", sizes, value=center, key=keys[0], format_func=lambda d: f"{d} µm · {grind_feel(d)}")
+    temp = st.select_slider("물 온도", temps, value=int(r.recipe.water_temp_c), key=keys[1], format_func=lambda t: f"{t} °C")
+    recipe = em.Recipe(r.recipe.dose_g, float(temp), r.recipe.pours, r.recipe.bypass_g)
+    try:
+        p = em.predict(recipe, em.grind_from_d50(float(grind)))
+    except em.RecipeError as error:
+        notice(str(error), error=True)
+        return
+    ref = em.predict(em.Recipe(r.recipe.dose_g, r.recipe.water_temp_c, r.recipe.pours, r.recipe.bypass_g),
+                     em.grind_from_d50(float(center)))
+
+    def versus(value, base, unit, digits):
+        diff = round(value - base, digits)
+        return "추천과 같아요" if diff == 0 else f"추천보다 {diff:+g}{unit}"
+
+    html('<div class="dc-summary three">'
+         + tile("timer", "끊김", clock(p.drawdown_end_s), "", versus(p.drawdown_end_s, ref.drawdown_end_s, "초", 0))
+         + tile("science", "추출수율", f"{p.ey_pct:.1f}", "%", versus(p.ey_pct, ref.ey_pct, "%p", 1))
+         + tile("opacity", "농도", f"{p.tds_cup_pct:.2f}", "%", versus(p.tds_cup_pct, ref.tds_cup_pct, "%p", 2))
+         + "</div>")
+    gap = p.ey_pct - target.ey_pct
+    verdict = ("더 우러나요. 단맛과 바디가 늘지만 쓴맛도 같이 늘 수 있어요." if gap > 0.7
+               else "덜 우러나요. 산뜻하고 가볍지만 신맛이 튀거나 밍밍할 수 있어요." if gap < -0.7
+               else "내 입맛 목표 근처예요.")
+    if p.drawdown_end_s > rec.GOOD_DRAWDOWN_S[1]:
+        verdict += " 물 빠짐이 3:30을 넘어서 추천에서는 고르지 않는 조합이에요."
+    html(f'<div class="dc-verdict">{escape(verdict)}</div>')
+    st.button("↺ 추천값으로 되돌리기", type="tertiary", key="whatif-reset", on_click=reset_what_if, args=(keys,))
+
+
 def flow_base_recipe(flow):
-    """2단계: 기초 추천. 온도, 베이스 레시피, 목표 분쇄 크기와 클릭 힌트."""
+    """2단계: 기초 추천. 근거, 오늘의 요청, 베이스에서 바뀐 것, 레시피와 각 값의 영향, 붓기 일정, '이렇게 바꾸면?'."""
     brews = cal.load_brews(BREWS_PATH)
     beans = cal.load_beans(BEANS_PATH)
     bean = beans[flow["bean_id"]]
+    html(f'<div class="dc-lead">{escape(bean["bean_id"])} {escape(bean["name"])} · {escape(bean["roast_level"])} · '
+         f'원두 {flow["dose_g"]:g} g</div>')
+    evidence_chips(brews)
+    section("오늘은 어떻게?", "고르면 이번 잔의 목표만 옮겨요. 내 입맛 학습은 그대로예요.")
+    intent = st.segmented_control("오늘은 어떻게?", list(rec.INTENTS), default=flow.get("intent", "평소대로"),
+                                  key="flow-intent", label_visibility="collapsed",
+                                  format_func=lambda name: f":material/{INTENT_ICONS[name]}: {name}") or "평소대로"
+    flow["intent"] = intent
     try:
         with st.spinner("레시피 후보를 계산하는 중..."):
-            target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime)
+            target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime, intent)
     except rec.NoRecipeError as error:
         notice(str(error), error=True)
         if st.button("이전", key="flow-back-2"):
@@ -1742,26 +1865,27 @@ def flow_base_recipe(flow):
     hint = cal.click_hint(r.d50_um, flow["grinder"], bean["bean_id"], bean["roast_date"], brews)
     flow.update(target_d50_um=r.d50_um, hint_clicks=hint.clicks if hint else None)
     recipe = r.recipe
-    changed = (r.water_ratio != round(r.usual.water_ratio) or tuple(r.pattern) != tuple(r.usual.pattern))
-
-    # 무엇을 바꿨는지는 '목표에 맞추려고'보다 원두와 내 입맛에 맞췄다는 말로 (10/20 사용자 요청)
-    html(f'<div class="dc-lead">{escape(bean["bean_id"])} {escape(bean["name"])} · {escape(bean["roast_level"])} · '
-         f"원두 {recipe.dose_g:g} g<br>베이스는 <b>{escape(base_name(r.usual))}</b>예요. 이 원두의 배전도와 내 입맛 기록에 맞춰 "
-         + ("물 양과 붓기를 조정했어요." if changed else "온도와 분쇄를 정했어요.") + "</div>")
     low, high = r.temp_range
+
+    section("베이스에서 이렇게 바꿨어요")
+    base_changes(r, hint, target, brews, intent)
+    section("이번 레시피", f"목표: 추출수율 {target.ey_pct:.1f}%, 농도 {target.tds_pct:.2f}%")
     summary(
-        tile("grain", "목표 분쇄", f"{r.d50_um:.0f}", "µm", f"{hint_short(hint, flow['grinder'])} · {grind_feel(r.d50_um)}"),
-        tile("device_thermostat", "물 온도", f"{recipe.water_temp_c:g}", "°C", f"{bean['roast_level']} {low}–{high} °C"),
-        tile("water_drop", "물", f"{recipe.water_g:g}", "g", f"원두의 {r.water_ratio}배"),
-        tile("water_full", "가수", f"{recipe.bypass_g:g}", "g", "드리퍼를 뺀 뒤 더해요"),
+        tile("grain", "목표 분쇄", f"{r.d50_um:.0f}", "µm", f"{hint_short(hint, flow['grinder'])} · {grind_feel(r.d50_um)}",
+             EFFECTS["분쇄"]),
+        tile("device_thermostat", "물 온도", f"{recipe.water_temp_c:g}", "°C", f"{bean['roast_level']} {low}–{high} °C",
+             EFFECTS["물 온도"]),
+        tile("water_drop", "물", f"{recipe.water_g:g}", "g", f"원두의 {r.water_ratio}배", EFFECTS["물"]),
+        tile("water_full", "가수", f"{recipe.bypass_g:g}", "g", "드리퍼를 뺀 뒤 더해요", EFFECTS["가수"]),
     )
     html(f'<div class="dc-caption">{escape(hint_text(hint, flow["grinder"]))}</div>')
+    time_limit_notice(r, target)
     section("붓기 일정", f"{r.interval_s:g}초마다 부어요 · 원두의 {rec.pattern_text(r.pattern)}배 · "
                      "붓는 방식(가운데로, 원을 그리며)은 평소대로 해요.")
     pour_timeline(r.recipe, r.prediction.drawdown_end_s)
-    html(f'<div class="dc-caption">목표: 추출수율 {target.ey_pct:.1f}%, 농도 {target.tds_pct:.2f}% (내 선호 영역). '
-         f"예상 끊김 {clock(r.prediction.drawdown_end_s)} (모델 예측이라 원두에 따라 20초쯤 다를 수 있어요).</div>")
-    time_limit_notice(r, target)
+    html(f'<div class="dc-caption">예상 끊김 {clock(r.prediction.drawdown_end_s)} '
+         "(모델 예측이라 원두에 따라 20초쯤 다를 수 있어요).</div>")
+    what_if(r, target, intent)
     notice("이제 위 클릭으로 원두를 갈고, 사진용으로 조금 덜어 축척 용지에 얇게 펴 주세요. "
            "다음 단계에서 사진으로 실제 크기를 재고, 목표와 다르면 그 가루에 맞게 레시피를 고쳐요.")
     if bottom_cta("다음: 갈고 사진 찍기", "flow-next-2", back_to=1, back_key="flow-back-2"):
@@ -1795,7 +1919,7 @@ def interval_text(change_s):
 
 def flow_grind(flow):
     """3단계: 분쇄 확인. 간 가루를 사진으로 재고, 목표와 다르면 붓기 간격과 가수량을 그 가루에 맞춘다(MODEL.md 9.3)."""
-    target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime)
+    target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime, flow.get("intent", "평소대로"))
     html('<div class="dc-lead">간 가루를 조금 덜어 축척 용지의 <b>A칸(큰 칸)</b>에 <b>서로 닿지 않게</b> 펴고, '
          "네 모서리의 검은 네모가 모두 보이게 위에서 찍어 주세요.<br>"
          f"목표 대표 크기는 <b>{r.d50_um:.0f} µm</b>예요. 대표 크기는 가루 무게의 절반이 이보다 작은 크기예요.</div>")
@@ -1954,7 +2078,8 @@ def flow_record(flow, taste, strength, memo):
     """흐름에서 모은 값으로 brews.csv 한 줄을 만든다."""
     brews = cal.load_brews(BREWS_PATH)
     bean = cal.load_beans(BEANS_PATH)[flow["bean_id"]]
-    target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime)
+    intent = flow.get("intent", "평소대로")
+    target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime, intent)
     recipe, prediction = flow["recipe"], flow["prediction"]
     measured = flow.get("measured_d50_um")
     today = date.today().isoformat()
@@ -1975,6 +2100,7 @@ def flow_record(flow, taste, strength, memo):
                                    + (f" → 잰 {measured:.0f} µm에 맞춤" if measured else "")
                                    + (f" · 간격 {r.interval_s:g} → {flow['interval_s']:g}초"
                                       if flow.get("interval_s", r.interval_s) != r.interval_s else "")
+                                   + (f" · 오늘은 '{intent}'" if intent != "평소대로" else "")
                                    + f", 목표 {target.ey_pct:.1f}% · {target.tds_pct:.2f}%)",
     }
 
