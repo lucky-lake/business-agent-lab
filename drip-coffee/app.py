@@ -19,21 +19,19 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from dripcoffee import DATA_DIR, LOCAL_DATA_DIR
+from dripcoffee import LOCAL_DATA_DIR
 from dripcoffee import calibration as cal
 from dripcoffee import extraction_model as em
 from dripcoffee import grind_analysis as ga
 from dripcoffee import recommend as rec
 
 PROFILE_DIR = Path(os.environ.get("DRIP_COFFEE_PROFILES", LOCAL_DATA_DIR / "grind_profiles"))  # 분쇄 측정 저장 폴더
-CLICK_TABLE = DATA_DIR / "reference" / "maverick_click_table.csv"
 # 추출 기록과 원두 목록. 테스트·미리보기에서는 환경 변수로 다른 파일을 쓰게 해 실제 기록을 건드리지 않는다.
 BREWS_PATH = Path(os.environ.get("DRIP_COFFEE_BREWS", cal.BREWS_PATH))
 BEANS_PATH = Path(os.environ.get("DRIP_COFFEE_BEANS", cal.BEANS_PATH))
 EQUIPMENT_PATH = Path(os.environ.get("DRIP_COFFEE_EQUIPMENT", cal.EQUIPMENT_PATH))
 
 BRAND = "#A85A17"  # 포인트 컬러(캐러멜). 사진 위 잰 입자 표시만 커피색과 구별되게 파랑(OUTLINE_COLORS)
-TEXT = "#2A2A2A"
 GRAY_DARK = "#4E5968"
 GRAY = "#8B95A1"
 GRAY_LIGHT = "#B0B8C1"
@@ -80,20 +78,6 @@ STYLE = """
 .dc-lead { font-size: 16px; color: #4E5968; line-height: 1.6; margin: 4px 0 28px; word-break: keep-all; }  /* 낱말 중간에서 줄을 바꾸지 않는다 */
 .dc-section { font-size: 22px; font-weight: 700; color: #2A2A2A; letter-spacing: -0.02em; margin: 48px 0 4px; }
 .dc-caption { font-size: 14px; color: #8B95A1; margin-bottom: 16px; }
-
-.dc-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 20px 0 8px; }
-.dc-card { background: #FFFFFF; border-radius: 24px; padding: 28px 28px 24px;
-           box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04); animation: dc-rise .4s var(--dc-ease) both; }
-.dc-cards.three { grid-template-columns: repeat(3, 1fr); }  /* 큰 카드 하나 + 작은 카드 셋 */
-.dc-card.hero { grid-column: 1 / -1; }
-.dc-card:nth-child(2) { animation-delay: .07s; }
-.dc-card:nth-child(3) { animation-delay: .14s; }
-.dc-label { font-size: 15px; font-weight: 500; color: #6B7684; margin-bottom: 6px; }
-.dc-value { font-size: 48px; font-weight: 700; color: #2A2A2A; line-height: 1.2;
-            letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
-.dc-card.hero .dc-value { color: #A85A17; }
-.dc-unit { font-size: 24px; font-weight: 600; color: #4E5968; margin-left: 6px; letter-spacing: 0; }
-.dc-sub { font-size: 14px; color: #8B95A1; margin-top: 10px; line-height: 1.5; }
 
 .dc-notice { background: #F2F4F6; border-radius: 16px; padding: 16px 20px;
              font-size: 15px; color: #4E5968; line-height: 1.6; animation: dc-rise .3s var(--dc-ease) both; }
@@ -439,7 +423,6 @@ STYLE = """
   .dc-tool.last, .dc-tool-check { opacity: 1; } .dc-tool-check { width: 16px; } .dc-tool-name { background: #FFFFFF; }
   .dc-tool-slot { max-width: none; } .dc-tool-slot + .dc-tool-slot { margin-left: 6px; }
 }
-@media (max-width: 640px) { .dc-cards, .dc-cards.three { grid-template-columns: 1fr; } .dc-value { font-size: 40px; } }
 </style>
 """
 
@@ -487,15 +470,6 @@ def counted(value):
     if not value.isdigit():
         return escape(value)
     return f'<span class="dc-count" style="--dc-n:{int(value)}" aria-hidden="true"></span><span class="dc-sr">{value}</span>'
-
-
-def card(label, value, unit, sub="", hero=False):
-    return (
-        f'<div class="dc-card{" hero" if hero else ""}"><div class="dc-label">{escape(label)}</div>'
-        f'<div class="dc-value">{counted(value)}<span class="dc-unit">{escape(unit)}</span></div>'
-        + (f'<div class="dc-sub">{escape(sub)}</div>' if sub else "")
-        + "</div>"
-    )
 
 
 def tile(icon, label, value, unit="", sub="", effect=""):
@@ -616,14 +590,6 @@ def distribution_chart(profile, show_count):
     return layers.properties(height=300).configure_view(stroke=None).configure(font=FONT)
 
 
-def click_table_size(clicks):
-    """메버릭 클릭표(인터넷 기준, 비교용)에서 클릭 수에 해당하는 크기. 표 범위 밖이면 None."""
-    table = pd.read_csv(CLICK_TABLE).sort_values("clicks")
-    if not table["clicks"].min() <= clicks <= table["clicks"].max():
-        return None
-    return float(np.interp(clicks, table["clicks"], table["size_um"]))
-
-
 def show_photo_result(rectified, measurement):
     """사진 한 장의 결과: 윤곽선을 그린 가루 칸 사진과 숫자, 경고."""
     left, right = st.columns([3, 2], gap="large")
@@ -663,7 +629,7 @@ def show_profile(profile, grinder, clicks):
     for warning in profile.warnings:
         notice(warning)
     if "메버릭" in grinder:
-        reference = click_table_size(clicks)
+        reference = cal.table_size(clicks, grinder)
         if reference is not None:
             notice(f"참고: 메버릭 클릭표(인터넷 기준, 비교용)에서 {clicks}클릭은 약 {reference:.0f} µm예요.")
 
@@ -2159,14 +2125,10 @@ def flow_brew(flow):
     except cal.BrewLogError as error:
         toast(str(error))
     if seconds and beverage:
-        html(
-            '<div class="dc-cards">'
-            + card("물줄기 끊김", clock(seconds), "", versus_time(prediction.drawdown_end_s, seconds))
-            + card("음료 (가수 전)", f"{beverage:g}", "g", versus_grams(prediction.beverage_g, beverage))
-            + "</div>"
-        )
+        summary(tile("timer", "물줄기 끊김", clock(seconds), "", versus_time(prediction.drawdown_end_s, seconds)),
+                tile("local_cafe", "음료 (가수 전)", f"{beverage:g}", "g", versus_grams(prediction.beverage_g, beverage)))
         st.altair_chart(timeline_chart(prediction, recipe, actual_end=seconds), width="stretch")
-        html('<div class="dc-caption">파란 선은 모델이 예측한 음료가 나오는 모습이에요. 진한 회색 점선이 실제로 끊긴 시각이에요.</div>')
+        html('<div class="dc-caption">갈색 선은 모델이 예측한 음료가 나오는 모습이에요. 진한 회색 점선이 실제로 끊긴 시각이에요.</div>')
 
     if bottom_cta("다음: 맛 평가", "flow-next-4", bool(seconds and beverage),
                   "끊긴 시각과 음료 무게를 적으면 다음으로 갈 수 있어요", back_to=3, back_key="flow-back-4"):

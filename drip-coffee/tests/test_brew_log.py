@@ -107,4 +107,4 @@ def test_every_logged_bean_is_in_the_bean_list():
     beans = cal.load_beans()
     assert {"B01", "B02", "B03", "B05", "B06", "B07", "B08", "S1"} <= set(beans)
     assert {b.bean_id for b in cal.load_brews()} <= set(beans)
-    assert {row["role"] for row in beans.values()} <= set(cal.BEAN_ROLES)
+    assert {row["role"] for row in beans.values()} <= {"학습", "검증", "시험", "여유", "일반"}  # 앱에서 더한 원두는 '일반'

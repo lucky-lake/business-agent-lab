@@ -5,7 +5,6 @@
 """
 import cv2
 import numpy as np
-import pytest
 
 from dripcoffee import grind_analysis as ga
 from tests.synthetic import COFFEE_BGR, DARK_CHAFF_BGR, PAPER_BGR, render_particles, scattered_particles
