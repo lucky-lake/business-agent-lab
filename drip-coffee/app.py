@@ -1163,8 +1163,6 @@ def log_form():
     bean = beans[bean_id]
     same_bean = [b for b in brews if b.bean_id == bean_id]
     previous = same_bean[-1] if same_bean else (brews[-1] if brews else None)  # 입력칸 기본값은 지난 잔
-    if bean["role"] == "시험":
-        notice("시험용 원두예요. 모델을 동결한 뒤 최종 시험에서만 써요 (MODEL.md 6절).")
 
     equipment = cal.load_equipment(EQUIPMENT_PATH)
     c1, c2, c3 = st.columns(3)
@@ -1526,8 +1524,6 @@ def recommend_tab():
     dose = c2.number_input("원두 무게 (g)", min_value=5.0, max_value=40.0, value=20.0, step=0.1, format="%.1f",
                            key="rec-dose")
     bean = beans[bean_id]
-    if bean["role"] == "시험":
-        notice("시험용 원두예요. 모델을 동결한 뒤 최종 시험에서만 내려요 (MODEL.md 6절).")
 
     try:
         with st.spinner("레시피 후보를 계산하는 중..."):
@@ -1814,8 +1810,6 @@ def flow_equipment(flow):
     if st.button("＋ 새 원두 추가", type="tertiary", key="flow-add-bean"):
         add_bean_dialog()
     if bean_id:
-        if beans[bean_id]["role"] == "시험":
-            notice("시험용 원두예요. 모델을 동결한 뒤 최종 시험에서만 내려요 (MODEL.md 6절).")
         rest_notice(beans[bean_id])
     # 장비는 목록에서만 고른다. 드리퍼·그라인더는 지난 잔 것을 채우고, 필터는 장소마다 달라서 매번 고른다
     # (목록에 하나뿐이면 그것을 채운다)
