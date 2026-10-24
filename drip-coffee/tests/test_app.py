@@ -10,6 +10,7 @@ import pytest
 from streamlit.testing.v1 import AppTest
 
 from dripcoffee import DATA_DIR, PROJECT_ROOT
+from dripcoffee import calibration as cal
 from tests.synthetic import render_sheet_window, simulate_photo
 
 APP = str(PROJECT_ROOT / "app.py")
@@ -301,3 +302,32 @@ def test_taste_step_needs_all_scores_and_strength_then_saves_the_cup(monkeypatch
     assert has_text(at, f"→ {after.tds_pct:.2f}%")
     button(at, "flow-finish-home").click().run()
     assert not at.exception and has_text(at, "오늘의 한 잔")
+
+
+def test_deployed_app_keeps_each_visitor_apart(monkeypatch, my_files):
+    # 배포한 앱: 누구의 기록으로 시작할지 고른다. 둘러보기는 만든 사람 기록의 복사본이고, 내 이름은 빈 기록에서
+    # 시작한다. 어느 쪽도 저장소의 기록 파일을 바꾸지 않는다
+    monkeypatch.setenv("DRIP_COFFEE_SANDBOX", "1")
+    originals = {path: path.read_bytes() for path in (cal.BREWS_PATH, cal.BEANS_PATH, cal.EQUIPMENT_PATH)}
+    at = start(monkeypatch, *my_files)
+    assert not at.exception and has_text(at, "어떻게 시작할까요?") and hint(at, "start-go")
+    button(at, "start-tour").click().run()
+    assert not at.exception and has_text(at, "둘러보는 중") and has_text(at, f"{len(cal.load_brews())}잔")
+    button(at, "tour-leave").click().run()
+    button(at, "start-mine").click().run()
+    button(at, "start-go").click().run()
+    assert has_text(at, "어떻게 시작할까요?")  # 이름이 비면 그대로
+    at.text_input(key="start-name").set_value("아침커피")
+    button(at, "start-go").click().run()
+    assert not at.exception and has_text(at, "아직 없어요") and button(at, "home-who").label.startswith("아침커피의 기록")
+    button(at, "home-history").click().run()
+    assert not at.exception and has_text(at, "아직 기록한 잔이 없어요")
+    button(at, "history-home").click().run()
+    button(at, "home-check").click().run()
+    assert not at.exception
+    button(at, "check-home").click().run()
+    button(at, "home-who").click().run()  # 이름을 누르면 바꾸기 창이 열린다
+    assert not at.exception and has_text(at, "만든 사람 기록 둘러보기")
+    button(at, "space-tour").click().run()
+    assert not at.exception and has_text(at, "둘러보는 중")
+    assert all(path.read_bytes() == data for path, data in originals.items())

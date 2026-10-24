@@ -10,6 +10,8 @@ import base64
 import math
 import os
 import random
+import shutil
+import tempfile
 import time
 from datetime import date
 from pathlib import Path
@@ -32,6 +34,22 @@ PROFILE_DIR = Path(os.environ.get("DRIP_COFFEE_PROFILES", LOCAL_DATA_DIR / "grin
 BREWS_PATH = Path(os.environ.get("DRIP_COFFEE_BREWS", cal.BREWS_PATH))
 BEANS_PATH = Path(os.environ.get("DRIP_COFFEE_BEANS", cal.BEANS_PATH))
 EQUIPMENT_PATH = Path(os.environ.get("DRIP_COFFEE_EQUIPMENT", cal.EQUIPMENT_PATH))
+
+
+def sandbox_mode():
+    """배포한 앱인지. 배포할 때 Secrets에 DRIP_COFFEE_SANDBOX = "1"을 넣는다. 배포한 앱에서는 방문자마다
+    따로 쓰는 기록 폴더를 만들고, 내 컴퓨터에서는 data/의 기록을 그대로 쓴다."""
+    if os.environ.get("DRIP_COFFEE_SANDBOX") == "1":
+        return True
+    try:
+        return str(st.secrets.get("DRIP_COFFEE_SANDBOX", "")) == "1"
+    except FileNotFoundError:  # 비밀 설정 파일이 없으면 내 컴퓨터
+        return False
+
+
+SANDBOX = sandbox_mode()
+TOUR = "만든 사람 기록"  # 배포한 앱에서 만든 사람의 기록을 둘러보는 공간의 이름
+SPACE_TTL_S = 24 * 3600  # 방문자 기록 폴더는 하루가 지나면 지운다 (서버에 남기지 않는다)
 
 BRAND = "#A85A17"  # 포인트 컬러(캐러멜). 사진 위 잰 입자 표시만 커피색과 구별되게 파랑(OUTLINE_COLORS)
 GRAY_DARK = "#4E5968"
@@ -144,16 +162,16 @@ STYLE = """
 /* 아직 갈 수 없을 때의 흐린 안내(cta_hint). 누르면 좌우로 흔들리고 글자가 잠깐 빨개진다. 누를 때마다 상자가 새로
    그려지므로, 아래에서 올라오는 움직임은 처음 나타날 때(still)만 주고 다음 버튼의 튀어 오르기에서도 뺀다
    (누를 때마다 다시 올라오면 위아래로도 흔들려 보인다) */
-.st-key-flow-cta [class*="st-key-cta-hint-still-"] { animation: dc-rise .3s var(--dc-ease) both; }
-.st-key-flow-cta [class*="st-key-cta-hint-"] button { min-height: 56px; padding: 0 16px; border: none;
+:is(.st-key-flow-cta, .st-key-home-cta) [class*="st-key-cta-hint-still-"] { animation: dc-rise .3s var(--dc-ease) both; }
+:is(.st-key-flow-cta, .st-key-home-cta) [class*="st-key-cta-hint-"] button { min-height: 56px; padding: 0 16px; border: none;
                                                       border-radius: 16px; background: #F2F4F6; color: #8B95A1;
                                                       cursor: default; }
-.st-key-flow-cta [class*="st-key-cta-hint-"] button:hover,
-.st-key-flow-cta [class*="st-key-cta-hint-"] button:focus:not(:active) {
+:is(.st-key-flow-cta, .st-key-home-cta) [class*="st-key-cta-hint-"] button:hover,
+:is(.st-key-flow-cta, .st-key-home-cta) [class*="st-key-cta-hint-"] button:focus:not(:active) {
   border: none; background: #F2F4F6; color: #8B95A1; }
-.st-key-flow-cta [class*="st-key-cta-hint-"] button p { font-size: 15px; font-weight: 600; line-height: 1.4; }
-.st-key-flow-cta [class*="st-key-cta-hint-a-"] button { animation: dc-shake-a .42s var(--dc-ease) both; }
-.st-key-flow-cta [class*="st-key-cta-hint-b-"] button { animation: dc-shake-b .42s var(--dc-ease) both; }
+:is(.st-key-flow-cta, .st-key-home-cta) [class*="st-key-cta-hint-"] button p { font-size: 15px; font-weight: 600; line-height: 1.4; }
+:is(.st-key-flow-cta, .st-key-home-cta) [class*="st-key-cta-hint-a-"] button { animation: dc-shake-a .42s var(--dc-ease) both; }
+:is(.st-key-flow-cta, .st-key-home-cta) [class*="st-key-cta-hint-b-"] button { animation: dc-shake-b .42s var(--dc-ease) both; }
 @keyframes dc-shake-a { 0%, 100% { transform: none; } 15% { transform: translateX(-9px); color: #F04452; }
                         35% { transform: translateX(8px); } 55% { transform: translateX(-5px); }
                         75% { transform: translateX(3px); color: #F04452; } }
@@ -256,6 +274,14 @@ STYLE = """
 .st-key-home-list, .st-key-check-list { gap: 0; padding: 6px 0; border-radius: 24px; background: #FFFFFF;
                     box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04); animation: dc-rise .4s .08s var(--dc-ease) both; }
 .st-key-home-check button p { font-size: 13px; color: #8B95A1; }
+/* 배포한 앱: 누구의 기록인지(오른쪽 위 이름), 둘러보기 띠, 시작 화면의 이름 칸 */
+.st-key-home-top { margin-bottom: -8px; }
+.st-key-home-who button { min-height: 0; padding: 6px 12px; border: none; border-radius: 100px; background: #F2F4F6; }
+.st-key-home-who button p { font-size: 13px; font-weight: 600; color: #4E5968; }
+.st-key-home-tour { gap: 8px; padding: 10px 8px 10px 14px; border-radius: 14px; background: #FBEFE3; }
+.dc-tour { font-size: 13px; line-height: 1.45; color: #874711; }
+.st-key-home-tour button p { font-size: 14px; font-weight: 700; color: #A85A17; white-space: nowrap; }
+.st-key-home-list [data-testid="stTextInput"], .st-key-space-list [data-testid="stTextInput"] { padding: 0 20px 10px; }
 /* 누를 수 있는 목록 한 줄 (list_row): 보이는 내용은 HTML, 그 위를 투명한 버튼이 통째로 덮는다 */
 [class*="st-key-row-"] { position: relative; gap: 0; }
 [class*="st-key-row-"] [data-testid="stElementContainer"]:has(button) { position: absolute; inset: 0; z-index: 1; }
@@ -1527,7 +1553,7 @@ def recommend_tab():
 
     try:
         with st.spinner("레시피 후보를 계산하는 중..."):
-            target, r = cached_recommendation(bean_id, float(dose), BREWS_PATH.stat().st_mtime)
+            target, r = cached_recommendation(bean_id, float(dose), log_version())
     except rec.NoRecipeError as error:
         notice(str(error), error=True)
         return
@@ -1856,7 +1882,7 @@ def drawdown_error_s(log_version):
 
 def evidence_chips(brews):
     """추천이 무엇에 기대는지: 내 기록, 예측 오차, 문헌 비교."""
-    error = drawdown_error_s(BREWS_PATH.stat().st_mtime)
+    error = drawdown_error_s(log_version())
     chips = [f"내 기록 {len(brews)}잔 반영" if brews else "기록이 없어 골든컵에서 시작",
              *([f"예측 오차 평균 {error:.0f}초"] if error is not None else []),
              f"문헌 비교 {LITERATURE_PASSED[0]}/{LITERATURE_PASSED[1]} 통과"]
@@ -1945,7 +1971,7 @@ def flow_base_recipe(flow):
     flow["intent"] = intent
     try:
         with st.spinner("레시피 후보를 계산하는 중..."):
-            target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime, intent)
+            target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], log_version(), intent)
     except rec.NoRecipeError as error:
         notice(str(error), error=True)
         if st.button("이전", key="flow-back-2"):
@@ -2100,7 +2126,7 @@ def grind_method_markup():
 
 def flow_grind(flow):
     """3단계: 분쇄 확인. 간 가루를 사진으로 재고, 목표와 다르면 붓기 간격과 가수량을 그 가루에 맞춘다(MODEL.md 9.3)."""
-    target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime, flow.get("intent", "평소대로"))
+    target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], log_version(), flow.get("intent", "평소대로"))
     html('<div class="dc-lead">간 가루를 조금 덜어 축척 용지의 <b>A칸(큰 칸)</b>에 <b>서로 닿지 않게</b> 펴고, '
          "네 모서리의 검은 네모가 모두 보이게 위에서 찍어 주세요.<br>"
          f"목표 대표 크기는 <b>{r.d50_um:.0f} µm</b>예요. 대표 크기는 가루 무게의 절반이 이보다 작은 크기예요.</div>")
@@ -2269,7 +2295,7 @@ def flow_record(flow, taste, strength, memo):
     brews = cal.load_brews(BREWS_PATH)
     bean = cal.load_beans(BEANS_PATH)[flow["bean_id"]]
     intent = flow.get("intent", "평소대로")
-    target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime, intent)
+    target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], log_version(), intent)
     recipe, prediction = flow["recipe"], flow["prediction"]
     measured = flow.get("measured_d50_um")
     today = date.today().isoformat()
@@ -2337,7 +2363,7 @@ def flow_taste(flow):
     hint = "맛 6항목을 모두 매기면 기록할 수 있어요" if not rated else "진하기를 고르면 기록할 수 있어요"
     if bottom_cta("이 잔 기록하기", "flow-save", rated and bool(picked), hint, back_to=4, back_key="flow-back-5"):
         strength = next(code for code, label in STRENGTH_CHOICES.items() if label == picked)
-        before, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime)
+        before, r = cached_recommendation(flow["bean_id"], flow["dose_g"], log_version())
         record = flow_record(flow, taste, strength, memo)
         try:
             cal.append_brew(record, BREWS_PATH)
@@ -2407,7 +2433,7 @@ def flow_finish(flow):
              "다음에는 3단계에서 가루 사진을 찍어 주세요.</div>")
 
     try:
-        _, nxt = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime)
+        _, nxt = cached_recommendation(flow["bean_id"], flow["dose_g"], log_version())
     except rec.NoRecipeError:
         nxt = None
     if nxt:
@@ -2507,12 +2533,146 @@ def brew_same_bean(last):
     st.session_state["flow"].update(bean_id=last.bean_id, dose_g=last.dose_g)
 
 
+def log_version():
+    """추천 캐시의 열쇠: 어느 기록 파일인지와 마지막으로 바뀐 때. 배포한 앱은 방문자마다 기록 파일이 달라 경로도 넣는다."""
+    return str(BREWS_PATH), os.path.getmtime(BREWS_PATH)
+
+
+def new_space(tour):
+    """방문자가 쓸 기록 폴더를 임시 폴더에 만든다. 둘러보기면 만든 사람의 기록을 복사하고, 아니면 빈 기록과
+    기본 장비 목록으로 시작한다. 하루가 지난 다른 방문자 폴더는 이때 지운다."""
+    for old in Path(tempfile.gettempdir()).glob("drip-coffee-*"):
+        if time.time() - old.stat().st_mtime > SPACE_TTL_S:
+            shutil.rmtree(old, ignore_errors=True)
+    folder = Path(tempfile.mkdtemp(prefix="drip-coffee-"))
+    for path in (cal.BREWS_PATH, cal.BEANS_PATH):
+        if tour:
+            shutil.copy(path, folder / path.name)
+        else:
+            header = path.read_text(encoding="utf-8").splitlines()[0]
+            (folder / path.name).write_text(header + "\n", encoding="utf-8")
+    shutil.copy(cal.EQUIPMENT_PATH, folder / cal.EQUIPMENT_PATH.name)
+    return folder
+
+
+def use_space(name):
+    """이번 실행에서 쓸 기록 파일을 그 이름의 기록 폴더로 바꾼다."""
+    global BREWS_PATH, BEANS_PATH, EQUIPMENT_PATH, PROFILE_DIR
+    folder = Path(st.session_state["spaces"][name])
+    BREWS_PATH, BEANS_PATH, EQUIPMENT_PATH = (folder / p.name for p in (cal.BREWS_PATH, cal.BEANS_PATH, cal.EQUIPMENT_PATH))
+    PROFILE_DIR = folder / "grind_profiles"
+
+
+def open_space(name, in_dialog=False):
+    """이름(또는 둘러보기)의 기록으로 첫 화면을 연다. 이번 접속에서 처음 여는 이름이면 기록 폴더를 만든다.
+    in_dialog면 바꾸기 창을 닫도록 표시해 둔다(space_dialog)."""
+    spaces = st.session_state.setdefault("spaces", {})
+    if name not in spaces:
+        spaces[name] = str(new_space(name == TOUR))
+    st.session_state.update(space=name, asking_name=False, space_opened=in_dialog)
+    open_page("home")
+
+
+def leave_space():
+    st.session_state["space"] = None
+    open_page("home")
+
+
+def ask_name():
+    st.session_state["asking_name"] = True
+
+
+def start_mine(key, in_dialog=False):
+    """적은 이름으로 내 기록을 연다. 이름이 비었으면 다음 화면에서 알린다."""
+    name = (st.session_state.get(key) or "").strip()
+    if not name or name == TOUR:
+        st.session_state["name_error"] = True
+        return
+    open_space(name, in_dialog)
+
+
+def name_rows(prefix):
+    """'새 이름으로 시작하기' 줄과, 누르면 나오는 이름 칸."""
+    title = "새 이름으로 시작하기" if prefix == "space" else "내 이름으로 시작하기"
+    list_row(f"{prefix}-mine", row_markup('<span class="dc-icon" aria-hidden="true">person_add</span>', title,
+                                          "내 기록을 새로 쌓아요"), title, ask_name)
+    if st.session_state.get("asking_name"):
+        st.text_input("이름이나 별명", max_chars=12, placeholder="이름이나 별명 (예: 아침커피)", key=f"{prefix}-name",
+                      label_visibility="collapsed")
+
+
+def tour_row(prefix):
+    n = len(cal.load_brews(cal.BREWS_PATH))
+    list_row(f"{prefix}-tour", row_markup('<span class="dc-icon" aria-hidden="true">visibility</span>',
+                                          "만든 사람 기록 둘러보기", f"실제로 내린 {n}잔으로 추천을 받아 봐요"),
+             "만든 사람 기록 둘러보기", open_space, (TOUR, prefix == "space"))
+
+
+def start_page():
+    """배포한 앱의 첫 화면: 누구의 기록으로 시작할지 고른다. 기록은 방문자마다 따로 쓴다."""
+    html(HOME_HERO)
+    with st.container(key="home-guide-new"):
+        st.button("처음이세요? 사용법 보기 ›", type="tertiary", key="home-tutorial", on_click=open_page, args=("tutorial",))
+    if st.session_state.pop("name_error", False):
+        toast("이름이나 별명을 적어 주세요.")
+    section("어떻게 시작할까요?")
+    with st.container(key="home-list"):
+        name_rows("start")
+        tour_row("start")
+    html('<div class="dc-caption">기록은 서버에 남지 않아요.</div>')
+    with st.container(key="home-cta"):
+        if st.session_state.get("asking_name"):
+            st.button("이 이름으로 시작하기", type="primary", width="stretch", key="start-go", on_click=start_mine,
+                      args=("start-name",))
+        else:
+            cta_hint("어떻게 시작할지 골라 주세요", "start-go")
+
+
+@st.dialog("누구의 기록으로 볼까요?")
+def space_dialog():
+    """이번 접속에서 연 이름 중에서 고르거나, 새 이름으로 시작하거나, 만든 사람 기록을 둘러본다."""
+    current = st.session_state.get("space")
+    if st.session_state.pop("name_error", False):
+        toast("이름이나 별명을 적어 주세요.")
+    with st.container(key="space-list"):
+        for i, name in enumerate(n for n in st.session_state.get("spaces", {}) if n != TOUR):
+            list_row(f"space-{i}", row_markup(f'<span class="dc-avatar">{escape(name[:2])}</span>', name,
+                                              action="지금" if name == current else ""),
+                     f"{name}의 기록 열기", open_space, (name, True))
+        name_rows("space")
+        tour_row("space")
+    if st.session_state.get("asking_name"):
+        st.button("이 이름으로 시작하기", type="primary", width="stretch", key="space-go", on_click=start_mine,
+                  args=("space-name", True))
+    if st.session_state.pop("space_opened", False):
+        st.rerun()
+
+
+def space_header():
+    """배포한 앱의 첫 화면 위: 둘러보기 중이면 안내 띠, 아니면 누구의 기록인지와 바꾸기."""
+    space = st.session_state["space"]
+    if space == TOUR:
+        with st.container(key="home-tour", horizontal=True, vertical_alignment="center"):
+            html('<div class="dc-tour"><b>만든 사람 기록</b>을 둘러보는 중이에요.<br>'
+                 "여기서 바꾼 기록은 이번 접속이 끝나면 사라져요.</div>")
+            st.button("나가기", type="tertiary", key="tour-leave", on_click=leave_space)
+        return
+    with st.container(key="home-top", horizontal=True, horizontal_alignment="right"):
+        if st.button(f"{space}의 기록 :material/expand_more:", key="home-who"):
+            space_dialog()
+
+
+HOME_HERO = ('<div class="dc-home"><div class="dc-icon dc-home-icon" aria-hidden="true">coffee</div>'
+             '<div class="dc-eyebrow">Drip Coffee</div><div class="dc-hero">오늘의 한 잔</div>'
+             '<div class="dc-lead">원두와 장비만 알려 주면 레시피부터 기록까지 안내해요.<br>'
+             "맛을 매길수록 다음 잔이 내 입맛에 가까워져요.</div></div>")
+
+
 def home_page():
     """첫 화면: 아래에 붙은 '시작하기', 지난 잔과 내 기록 목록, 맨 아래 작은 '모델 점검' 링크."""
-    html('<div class="dc-home"><div class="dc-icon dc-home-icon" aria-hidden="true">coffee</div>'
-         '<div class="dc-eyebrow">Drip Coffee</div><div class="dc-hero">오늘의 한 잔</div>'
-         '<div class="dc-lead">원두와 장비만 알려 주면 레시피부터 기록까지 안내해요.<br>'
-         "맛을 매길수록 다음 잔이 내 입맛에 가까워져요.</div></div>")
+    if SANDBOX:
+        space_header()
+    html(HOME_HERO)
     brews = cal.load_brews(BREWS_PATH)
     # 사용법 링크: 기록이 없으면 강조색, 있으면 '다시 보기'로 회색으로 작게
     with st.container(key="home-guide-again" if brews else "home-guide-new"):
@@ -2719,5 +2879,11 @@ st.set_page_config(page_title="Drip Coffee", layout="wide")
 html(STYLE)
 TOASTS = st.container(key="dc-toasts")  # 위에서 내려오는 알림 자리 (toast)
 PAGES = {"home": home_page, "flow": flow_page, "tutorial": tutorial_page, "history": history_page,
-         "check": check_page}
-PAGES[st.session_state.setdefault("page", "home")]()
+         "check": check_page, "start": start_page}
+PAGE = st.session_state.setdefault("page", "home")
+if SANDBOX:  # 배포한 앱은 누구의 기록인지 고르기 전에는 시작 화면과 사용법만 보여 준다
+    if st.session_state.get("space"):
+        use_space(st.session_state["space"])
+    elif PAGE != "tutorial":
+        PAGE = "start"
+PAGES[PAGE]()
