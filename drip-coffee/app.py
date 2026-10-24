@@ -6,8 +6,11 @@
 색과 글꼴은 .streamlit/config.toml에 있다.
 실행: streamlit run app.py
 """
+import base64
 import math
 import os
+import random
+import time
 from datetime import date
 from pathlib import Path
 from html import escape
@@ -392,6 +395,48 @@ STYLE = """
                  animation: dc-rise .45s 1.1s var(--dc-spring) both; }
 .dc-tut-change .dc-icon { width: 28px; height: 28px; font-size: 16px; margin: 0; }
 .dc-tut-change b { color: #2A2A2A; }
+
+/* 분쇄도 확인 (check_grind): 단계마다 쓴 방법을 한 문장씩 넘기고, 사진 위로 선이 훑는다. 막대는 버퍼링하듯
+   고르지 않게 --from에서 --to까지 찬다(dc-buf-0~2) */
+.dc-walk { margin-top: 16px; padding: 8px; border-radius: 24px; background: #F2F4F6; }
+.dc-walk-title { display: flex; align-items: center; padding: 10px 10px 8px; font-size: 15px; font-weight: 700; color: #2A2A2A; }
+.dc-walk-title small { margin-left: auto; font-size: 12px; font-weight: 500; color: #8B95A1; }
+.dc-walk-photo { position: relative; height: 140px; margin-bottom: 8px; border-radius: 16px; overflow: hidden; background: #FAFAF8; }
+.dc-walk-photo img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.dc-walk-photo i { position: absolute; top: 0; bottom: 0; width: 2px; background: #3182F6; box-shadow: 0 0 12px #3182F6;
+                   animation: dc-play 1.6s var(--dc-ease) infinite; }
+.dc-walk-box { min-height: 220px; padding: 18px 18px 16px; border-radius: 18px; background: #FFFFFF; }
+.dc-walk-top { display: flex; align-items: center; gap: 10px; font-size: 12px; font-weight: 700; color: #A85A17; }
+.dc-walk-bar { flex: 1; height: 4px; border-radius: 2px; background: #F2F4F6; overflow: hidden; }
+.dc-walk-bar i { display: block; height: 100%; border-radius: 2px; background: #A85A17; }
+.dc-walk-step { margin-top: 14px; animation: dc-walk-in .45s var(--dc-ease) both; }
+.dc-walk-name { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; color: #2A2A2A; }
+.dc-walk-name .dc-icon { margin: 0; animation: dc-tool-in .5s var(--dc-spring) both; }
+.dc-walk-step p { margin: 12px 0 0; font-size: 15px; line-height: 1.65; color: #4E5968; }
+.dc-walk-step p b, .dc-how-row p b { color: #874711; font-weight: 700; }
+.dc-walk-src { display: inline-block; margin-top: 10px; padding: 4px 10px; border-radius: 100px; background: #F2F4F6;
+               font-size: 12px; color: #6B7684; }
+.dc-walk-done { padding: 6px 6px 0; }
+.dc-walk-done div { display: flex; align-items: center; gap: 6px; padding: 5px 4px; font-size: 13px; color: #6B7684; }
+.dc-walk-done div.new { animation: dc-rise .3s var(--dc-ease) both; }
+.dc-walk-done span { font-family: "Material Symbols Rounded"; font-size: 18px; color: #A85A17; }
+.dc-walk-done small, .dc-walk-foot { font-size: 12px; color: #8B95A1; }
+.dc-walk-foot { padding: 10px 10px 4px; line-height: 1.5; }
+@keyframes dc-walk-in { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes dc-buf-0 { from { width: var(--from); } 30% { width: calc(var(--from) + (var(--to) - var(--from)) * .62); }
+                      62% { width: calc(var(--from) + (var(--to) - var(--from)) * .66); } to { width: var(--to); } }
+@keyframes dc-buf-1 { from { width: var(--from); } 42% { width: calc(var(--from) + (var(--to) - var(--from)) * .12); }
+                      58% { width: calc(var(--from) + (var(--to) - var(--from)) * .74); }
+                      86% { width: calc(var(--from) + (var(--to) - var(--from)) * .8); } to { width: var(--to); } }
+@keyframes dc-buf-2 { from { width: var(--from); } 36% { width: calc(var(--from) + (var(--to) - var(--from)) * .4); }
+                      74% { width: calc(var(--from) + (var(--to) - var(--from)) * .46); } to { width: var(--to); } }
+/* '어떻게 쟀나요' (grind_method_markup) */
+.dc-how-row { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid #F2F4F6; }
+.dc-how-row .dc-icon { flex: none; margin: 0; }
+.dc-how-name { font-size: 15px; font-weight: 600; color: #2A2A2A; }
+.dc-how-row p { margin: 2px 0 4px; font-size: 13px; line-height: 1.55; color: #6B7684; }
+.dc-how-row small, .dc-how-src { font-size: 12px; color: #8B95A1; }
+.dc-how-src { padding-top: 12px; line-height: 1.6; }
 
 /* 위에서 내려오는 알림 (toast): 흰 알약 모양, 왼쪽 아이콘, 48px 위에서 내려오고 3초 뒤 사라진다.
    알림 자리는 화면 흐름 밖에 고정해 내용을 밀지 않는다 */
@@ -1967,6 +2012,98 @@ def interval_text(change_s):
     return f"추천보다 {-change_s:g}초 줄였어요. 고운 가루가 너무 우러나지 않게 물에 덜 닿게 해요."
 
 
+# 분쇄도 확인 단계: (아이콘, 이름, 무엇을 사용했는지, 출처, 짧은 이름, 보여 주는 초). 출처는 조사 노트 7
+GRIND_STEPS = (
+    ("qr_code_scanner", "용지 마커 찾기", "축척 용지 네 모서리의 표시를 찾는 데 <b>ArUco 마커</b>를 사용했어요.",
+     "Garrido-Jurado 외, 2014", "ArUco 마커", 1.3),
+    ("crop_free", "사진 펴기", "비스듬히 찍은 사진을 정면으로 펴는 데 <b>호모그래피</b>를 사용했어요. "
+     "이때 1픽셀이 몇 µm인지도 구해요.", "Hartley & Zisserman, 2004", "호모그래피", 1.4),
+    ("grain", "알갱이 재기", "알갱이마다 넓이를 재서 같은 넓이의 원 지름으로 바꿨어요. "
+     "<b>정지 이미지 입자 분석 표준</b>을 참고했어요.", "ISO 13322-1", "정지 이미지 입자 분석", 1.8),
+    ("call_split", "붙은 알갱이 나누기", "붙은 알갱이는 <b>워터셰드</b> 방식을 참고해 잘록한 곳에서 나누고, "
+     "엉킨 덩어리는 <b>모양 지표(solidity)</b>로 골라 뺐어요.", "Vincent & Soille, 1991 · ISO 9276-6",
+     "워터셰드 · solidity", 1.7),
+    ("straighten", "대표 크기 구하기", "<b>부피 기준 분포</b>로 대표 크기를 구하고, <b>부트스트랩</b>으로 "
+     "다시 찍으면 달라질 수 있는 범위를 구했어요.", "ISO 9276-1 · Efron, 1979", "부피 기준 분포 · 부트스트랩", 1.3),
+)
+GRIND_SOURCES = ("Garrido-Jurado 외 (2014) Pattern Recognition 47:2280–2292 · Hartley & Zisserman (2004) Multiple View "
+                 "Geometry in Computer Vision, 2판 · ISO 13322-1:2014 · ISO 9276-6:2008 · ISO 9276-1 · "
+                 "Vincent & Soille (1991) IEEE TPAMI 13:583–598 · Efron (1979) Ann. Statist. 7:1–26")
+GRIND_PRIOR_TOOL = "비슷한 앞선 도구: Coffee ad Astra 분쇄 분석 앱 (Gagné, 2019)"
+WALK_JITTER_S = 0.15  # 단계마다 보여 주는 시간을 이만큼(±초) 흔든다
+# 첫 단계에서 분쇄도 확인 카드가 보이게 내린다 (폰에서는 사진 올리는 칸 아래에 있어 가려진다)
+WALK_SCROLL = ("<script>requestAnimationFrame(() => document.querySelector('.dc-walk')"
+               "?.scrollIntoView({behavior: 'smooth', block: 'start'}))</script>")
+
+
+def walk_plan(rng):
+    """단계마다 (보여 줄 초, 막대 모양 번호). 초는 GRIND_STEPS의 값을 조금 흔들고, 막대 모양은 앞 단계와 다르게 고른다."""
+    plan, shape = [], None
+    for *_, seconds in GRIND_STEPS:
+        shape = rng.choice([s for s in range(3) if s != shape])
+        plan.append((seconds + rng.uniform(-WALK_JITTER_S, WALK_JITTER_S), shape))
+    return plan
+
+
+def image_uri(image, width=640):
+    """화면에 바로 넣을 수 있게 줄인 JPEG data URI. image는 OpenCV 색 순서(BGR)."""
+    scale = min(1.0, width / image.shape[1])
+    small = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    return "data:image/jpeg;base64," + base64.b64encode(cv2.imencode(".jpg", small)[1].tobytes()).decode()
+
+
+def walk_markup(i, picture, n_photos, seconds, shape):
+    """분쇄도 확인 i번째 단계 화면: 사진 위를 훑는 선, 버퍼링하듯 차는 막대, 이 단계에서 쓴 방법과 출처, 지나간 단계."""
+    icon, name, used, source, _, _ = GRIND_STEPS[i]
+    total = len(GRIND_STEPS)
+    done = "".join(f'<div class="{"new" if j == i - 1 else ""}"><span aria-hidden="true">check</span>{escape(step[1])}'
+                   f" <small>· {escape(step[4])}</small></div>" for j, step in enumerate(GRIND_STEPS[:i]))
+    photo = f'<div class="dc-walk-photo"><img src="{picture}" alt=""><i></i></div>' if picture else ""
+    bar = (f'<i style="--from:{100 * i / total:.0f}%;--to:{100 * (i + 1) / total:.0f}%;'
+           f'animation:dc-buf-{shape} {seconds:.2f}s both"></i>')
+    return (f'<div class="dc-walk"><div class="dc-walk-title">분쇄도를 확인하고 있어요<small>사진 {n_photos}장</small></div>'
+            f'{photo}<div class="dc-walk-box" role="status"><div class="dc-walk-top">{i + 1} / {total}'
+            f'<span class="dc-walk-bar">{bar}</span></div><div class="dc-walk-step"><div class="dc-walk-name">'
+            f'<span class="dc-icon" aria-hidden="true">{icon}</span>{escape(name)}</div><p>{used}</p>'
+            f'<span class="dc-walk-src">{escape(source)}</span></div></div>'
+            f'<div class="dc-walk-done">{done}</div><div class="dc-walk-foot">{escape(GRIND_PRIOR_TOOL)}</div></div>')
+
+
+def check_grind(uploads):
+    """분쇄도 확인: 사진을 재면서 단계마다 무엇을 사용했는지 한 문장씩 보여 준다. 계산은 1초도 안 걸려서 단계마다
+    walk_plan의 시간만큼 보여 주고, 잰 결과는 analyze_upload가 기억해 둔다. 사진은 원본 → 펴진 칸 → 잰 알갱이로 바뀐다.
+    마커를 찾은 사진이 하나도 없으면 첫 단계에서 멈춘다."""
+    place = st.empty()
+    try:
+        pictures = [image_uri(ga.load_image_bytes(uploads[0].getvalue()))] * len(GRIND_STEPS)
+    except ga.GrindPhotoError:
+        pictures = [None] * len(GRIND_STEPS)
+    for i, (seconds, shape) in enumerate(walk_plan(random.Random())):
+        start = time.monotonic()
+        first = i == 0
+        place.html(walk_markup(i, pictures[i], len(uploads), seconds, shape) + (WALK_SCROLL if first else ""),
+                   unsafe_allow_javascript=first)
+        if first:
+            results = [analyze_upload(upload.getvalue()) for upload in uploads]
+            rectified, measurement, _ = next((r for r in results if r[2] is None), (None, None, None))
+            if rectified is not None:
+                outline = cv2.cvtColor(outline_image(rectified, measurement), cv2.COLOR_RGB2BGR)
+                pictures[1:] = [image_uri(rectified.image)] + [image_uri(outline)] * (len(GRIND_STEPS) - 2)
+        time.sleep(max(0.0, seconds - (time.monotonic() - start)))
+        if rectified is None:
+            break
+    place.empty()
+
+
+def grind_method_markup():
+    """'어떻게 쟀나요': 분쇄도 확인 단계마다 쓴 방법과 출처."""
+    items = "".join(f'<div class="dc-how-row"><span class="dc-icon" aria-hidden="true">{icon}</span><div>'
+                    f'<div class="dc-how-name">{escape(name)}</div><p>{used}</p><small>{escape(source)}</small></div></div>'
+                    for icon, name, used, source, _, _ in GRIND_STEPS)
+    return (f'<div class="dc-how">{items}<div class="dc-how-src"><b>출처</b> {escape(GRIND_SOURCES)}<br>'
+            f"{escape(GRIND_PRIOR_TOOL)}</div></div>")
+
+
 def flow_grind(flow):
     """3단계: 분쇄 확인. 간 가루를 사진으로 재고, 목표와 다르면 붓기 간격과 가수량을 그 가루에 맞춘다(MODEL.md 9.3)."""
     target, r = cached_recommendation(flow["bean_id"], flow["dose_g"], BREWS_PATH.stat().st_mtime, flow.get("intent", "평소대로"))
@@ -1979,10 +2116,21 @@ def flow_grind(flow):
     uploads = st.file_uploader("가루 사진 (여러 장 가능)", type=["jpg", "jpeg", "png", "webp"], accept_multiple_files=True,
                                key="flow-photos",
                                help="폰 카메라로 찍은 원본을 올려 주세요. 여러 장을 올리면 합쳐서 더 정확해요.") or []
+    photos = tuple(upload.file_id for upload in uploads)
+    if uploads and flow.get("checking") == photos:
+        with FLOW_CTA:
+            st.button("분쇄도를 확인하고 있어요", type="primary", width="stretch", disabled=True, key="flow-checking-3")
+        check_grind(uploads)
+        flow.update(checking=None, checked=photos)
+        st.rerun()
+    if uploads and flow.get("checked") != photos:
+        if bottom_cta("분쇄도 확인하기", "flow-check-3", back_to=2, back_key="flow-back-3"):
+            flow["checking"] = photos
+            st.rerun()
+        return
     measurements, names, shown, errors = [], [], [], []
     for upload in uploads:
-        with st.spinner(f"{upload.name} 재는 중..."):
-            rectified, measurement, error = analyze_upload(upload.getvalue())
+        rectified, measurement, error = analyze_upload(upload.getvalue())
         if error:
             errors.append((upload.name, error))
             continue
@@ -2035,6 +2183,8 @@ def flow_grind(flow):
         for name, rectified, measurement in shown:
             html(f'<div class="dc-caption"><b>{escape(name)}</b></div>')
             show_photo_result(rectified, measurement)
+    with st.expander("어떻게 쟀나요"):
+        html(grind_method_markup())
 
     if bottom_cta("다음: 이 레시피로 내리기", "flow-next-3", back_to=2, back_key="flow-back-3"):
         flow.update(clicks=clicks, measured_d50_um=profile.d50_um, photo_names=names, profile=profile,

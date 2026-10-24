@@ -5,10 +5,12 @@
 import re
 import shutil
 
+import cv2
 import pytest
 from streamlit.testing.v1 import AppTest
 
 from dripcoffee import DATA_DIR, PROJECT_ROOT
+from tests.synthetic import render_sheet_window, simulate_photo
 
 APP = str(PROJECT_ROOT / "app.py")
 
@@ -201,7 +203,6 @@ def test_bean_starts_blank_and_must_be_chosen(monkeypatch, my_files):
 
 def test_grind_step_asks_for_a_photo_and_can_go_on_without_one(monkeypatch, my_files):
     # 3단계: 사진을 올리기 전에는 안내만 보이고, 사진 없이 추천대로 내리면 4단계로 넘어간다.
-    # (AppTest는 사진 올리기를 흉내 낼 수 없어서, 사진을 잰 뒤의 화면은 브라우저에서 확인한다)
     at = start(monkeypatch, *my_files)
     button(at, "home-start").click().run()
     at.selectbox(key="flow-bean").set_value("B02").run()
@@ -216,6 +217,25 @@ def test_grind_step_asks_for_a_photo_and_can_go_on_without_one(monkeypatch, my_f
     # 분쇄 칸은 '–' 대신 예측에 쓴 목표 크기와 눈대중을 보여 준다 (기록에는 잰 값이 아니라 남기지 않는다)
     target = at.session_state["flow"]["target_d50_um"]
     assert has_text(at, f"{target:.0f}") and has_text(at, "사진 없음 · ") and has_text(at, "정도")
+
+
+def test_grind_check_walks_through_each_method_then_fits_the_recipe(monkeypatch, my_files):
+    # 3단계: 사진을 올리면 '분쇄도 확인하기'가 나오고, 누르면 단계를 다 보여 준 뒤 잰 크기와 맞춘 레시피가 나온다
+    at = start(monkeypatch, *my_files)
+    button(at, "home-start").click().run()
+    at.selectbox(key="flow-bean").set_value("B02").run()
+    at.selectbox(key="flow-filter").set_value("홀츠클로츠 무표백").run()
+    button(at, "flow-next-1").click().run()
+    button(at, "flow-next-2").click().run()
+    photo = simulate_photo(render_sheet_window(15.0, (12.0, 22.0, 108.0, 118.0), [(45.0, 55.0, 2.0), (60.0, 70.0, 1.5)]))
+    at.file_uploader(key="flow-photos").upload("sheet.png", cv2.imencode(".png", photo)[1].tobytes(), "image/png").run()
+    assert not at.exception and not has_text(at, "잰 대표 크기")
+    button(at, "flow-check-3").click().run()
+    assert not at.exception and has_text(at, "잰 대표 크기") and has_text(at, "Garrido-Jurado")
+    assert at.session_state["flow"]["checked"] and not at.session_state["flow"]["checking"]
+    button(at, "flow-next-3").click().run()
+    assert not at.exception and has_text(at, "4 / 6 단계")
+    assert at.session_state["flow"]["measured_d50_um"] > 0
 
 
 def test_brew_step_compares_the_result_with_the_prediction(monkeypatch, my_files):
