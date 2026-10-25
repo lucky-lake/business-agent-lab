@@ -10,6 +10,7 @@ import base64
 import math
 import os
 import random
+import re
 import shutil
 import tempfile
 import time
@@ -282,7 +283,8 @@ STYLE = """
 .st-key-home-tour { gap: 8px; padding: 10px 8px 10px 14px; border-radius: 14px; background: #FBEFE3; }
 .dc-tour { font-size: 13px; line-height: 1.45; color: #874711; }
 .st-key-home-tour button p { font-size: 14px; font-weight: 700; color: #A85A17; white-space: nowrap; }
-.st-key-home-list [data-testid="stTextInput"], .st-key-space-list [data-testid="stTextInput"] { padding: 0 20px 4px; }
+.st-key-home-list [data-testid="stTextInput"], .st-key-space-list [data-testid="stTextInput"],
+.st-key-home-list [data-testid="stFileUploader"], .st-key-space-list [data-testid="stFileUploader"] { padding: 0 20px 4px; }
 .dc-name-note { padding: 0 20px 12px; font-size: 12px; color: #8B95A1; }
 .st-key-dc-device { display: none; }  /* 이 기기에 저장하는 보이지 않는 부품 (sync_device) */
 .st-key-space-forget button p { font-size: 13px; color: #F04452; }
@@ -2604,9 +2606,7 @@ export default function({ data, setStateValue }) {
 """
 
 
-@st.cache_resource
-def device_component():
-    return st.components.v2.component("dc_device_store", js=DEVICE_JS)
+DEVICE_STORE = st.components.v2.component("dc_device_store", js=DEVICE_JS)  # 실행마다 같은 정의로 등록한다
 
 
 def sync_device():
@@ -2619,8 +2619,8 @@ def sync_device():
         packed = ds.pack(folders, st.session_state.get("last_name")) if folders else ""
         save = packed if packed != known else None
     with st.container(key="dc-device"):
-        stored = device_component()(key="device-store", data={"key": DEVICE_KEY, "known": known, "save": save},
-                                    default={"stored": None}, on_stored_change=lambda: None).stored
+        stored = DEVICE_STORE(key="device-store", data={"key": DEVICE_KEY, "known": known, "save": save},
+                              default={"stored": None}, on_stored_change=lambda: None).stored
     if stored is None or stored == known:
         return
     st.session_state["device_raw"] = stored
@@ -2650,7 +2650,7 @@ def open_space(name, in_dialog=False):
     spaces = st.session_state.setdefault("spaces", {})
     if name not in spaces:
         spaces[name] = str(new_space(name == TOUR))
-    st.session_state.update(space=name, asking_name=False, space_opened=in_dialog)
+    st.session_state.update(space=name, asking_name=False, importing=False, space_opened=in_dialog)
     if name != TOUR:
         st.session_state["last_name"] = name  # 다음 접속에 이 이름으로 바로 연다
     open_page("home")
@@ -2662,7 +2662,57 @@ def leave_space():
 
 
 def ask_name():
-    st.session_state["asking_name"] = True
+    st.session_state.update(asking_name=True, importing=False)
+
+
+def ask_import():
+    st.session_state.update(importing=True, asking_name=False)
+
+
+EXPORT_NAME = re.compile(r"drip-coffee-(.+?)-\d{8}")  # 받은 기록 파일 이름: drip-coffee-이름-날짜.zip
+
+
+def import_space(key, in_dialog=False):
+    """올린 기록 파일을 파일 이름에 적힌 이름의 기록으로 연다. 이 기기에 같은 이름이 있으면 파일의 기록으로 바꾼다."""
+    upload = st.session_state.get(key)
+    if upload is None:
+        st.session_state["import_error"] = "기록 파일을 골라 주세요."
+        return
+    found = EXPORT_NAME.search(upload.name)
+    name = (found.group(1) if found else Path(upload.name).stem)[:12].strip()
+    if not name or name == TOUR:
+        name = "불러온 기록"
+    folder = Path(tempfile.mkdtemp(prefix="drip-coffee-"))
+    try:
+        ds.write_files(ds.from_zip(upload.getvalue()), folder)
+        cal.load_brews(folder / cal.BREWS_PATH.name), cal.load_beans(folder / cal.BEANS_PATH.name)
+    except (ValueError, KeyError):
+        shutil.rmtree(folder, ignore_errors=True)
+        st.session_state["import_error"] = "Drip Coffee에서 받은 기록 파일(zip)이 아니에요."
+        return
+    spaces = st.session_state.setdefault("spaces", {})
+    if name in spaces:
+        shutil.rmtree(spaces[name], ignore_errors=True)
+    spaces[name] = str(folder)
+    open_space(name, in_dialog)
+
+
+def import_rows(prefix):
+    """'기록 파일 불러오기' 줄과, 누르면 나오는 파일 칸."""
+    list_row(f"{prefix}-import", row_markup('<span class="dc-icon" aria-hidden="true">upload_file</span>',
+                                            "기록 파일 불러오기", "다른 기기에서 받은 파일로 이어서"),
+             "기록 파일 불러오기", ask_import)
+    if st.session_state.get("importing"):
+        st.file_uploader("기록 파일 (.zip)", type=["zip"], key=f"{prefix}-file", label_visibility="collapsed")
+        html('<div class="dc-name-note">파일에 적힌 이름으로 열어요. 이 기기에 같은 이름이 있으면 파일의 기록으로 바꿔요.</div>')
+
+
+def start_alerts():
+    """시작 화면과 바꾸기 창에서 고쳐 달라는 알림(이름이 비었거나 파일을 읽지 못함)."""
+    if st.session_state.pop("name_error", False):
+        toast("이름이나 별명을 적어 주세요.")
+    if error := st.session_state.pop("import_error", None):
+        toast(error)
 
 
 def start_mine(key, in_dialog=False):
@@ -2697,18 +2747,21 @@ def start_page():
     html(HOME_HERO)
     with st.container(key="home-guide-new"):
         st.button("처음이세요? 사용법 보기 ›", type="tertiary", key="home-tutorial", on_click=open_page, args=("tutorial",))
-    if st.session_state.pop("name_error", False):
-        toast("이름이나 별명을 적어 주세요.")
+    start_alerts()
     section("어떻게 시작할까요?")
     with st.container(key="home-list"):
         space_rows("start", False)
         name_rows("start")
         tour_row("start")
-    html('<div class="dc-caption">기록은 서버에 남지 않고 이 브라우저에만 저장돼요.</div>')
+        import_rows("start")
+    html('<div class="dc-caption">기록은 서버에 남지 않고 이 브라우저에만 저장돼요. 다른 기기로 옮길 땐 파일로 받아 가세요.</div>')
     with st.container(key="home-cta"):
         if st.session_state.get("asking_name"):
             st.button("이 이름으로 시작하기", type="primary", width="stretch", key="start-go", on_click=start_mine,
                       args=("start-name",))
+        elif st.session_state.get("importing"):
+            st.button("불러와서 시작하기", type="primary", width="stretch", key="start-import-go", on_click=import_space,
+                      args=("start-file",))
         else:
             cta_hint("어떻게 시작할지 골라 주세요", "start-go")
 
@@ -2717,16 +2770,22 @@ def start_page():
 def space_dialog():
     """이 기기의 이름 중에서 고르거나, 새 이름으로 시작하거나, 만든 사람 기록을 둘러보거나, 지금 이름의 기록을 지운다."""
     current = st.session_state.get("space")
-    if st.session_state.pop("name_error", False):
-        toast("이름이나 별명을 적어 주세요.")
-    html('<div class="dc-caption">기록은 이 브라우저에만 저장돼요.</div>')
+    start_alerts()
+    html('<div class="dc-caption">기록은 이 브라우저에만 저장돼요. 다른 기기로 옮길 땐 파일로 받아 가세요.</div>')
     with st.container(key="space-list"):
         space_rows("space", True)
         name_rows("space")
         tour_row("space")
+        import_rows("space")
     if st.session_state.get("asking_name"):
         st.button("이 이름으로 시작하기", type="primary", width="stretch", key="space-go", on_click=start_mine,
                   args=("space-name", True))
+    elif st.session_state.get("importing"):
+        st.button("불러와서 시작하기", type="primary", width="stretch", key="space-import-go", on_click=import_space,
+                  args=("space-file", True))
+    st.download_button("기록 파일로 받기", ds.to_zip(st.session_state["spaces"][current]),
+                       file_name=f"drip-coffee-{current}-{date.today():%Y%m%d}.zip", mime="application/zip",
+                       icon=":material/download:", on_click="ignore", width="stretch", key="space-download")
     if st.session_state.get("confirm_forget"):
         html(f'<div class="dc-caption">이 기기에서 \'{escape(current)}\'의 기록을 지울까요? 되돌릴 수 없어요.</div>')
         st.button("지우기", width="stretch", key="space-forget-yes", on_click=forget_space, args=(current,))

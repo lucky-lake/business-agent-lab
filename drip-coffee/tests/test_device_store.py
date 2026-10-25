@@ -1,4 +1,6 @@
-"""배포한 앱의 기기 저장: 이름마다 기록 파일을 JSON 하나로 묶고 다시 푼다."""
+"""배포한 앱의 기기 저장: 이름마다 기록 파일을 JSON 하나로 묶고 다시 푼다. 다른 기기로 옮길 때는 zip 하나로."""
+import pytest
+
 from dripcoffee import DATA_DIR
 from dripcoffee import device_store as ds
 
@@ -29,3 +31,14 @@ def test_unpack_ignores_empty_or_broken_storage():
     assert ds.unpack("{not json") == ({}, None)
     assert ds.unpack('{"profiles": {"a": {"brews.csv": "x"}}}') == ({}, None)  # 파일이 모자라면 버린다
     assert ds.unpack('{"last": "없는 이름", "profiles": {}}') == ({}, None)
+
+
+def test_zip_carries_one_name_to_another_device(tmp_path):
+    folder = make_folder(tmp_path, "a", (DATA_DIR / "brews.csv").read_text(encoding="utf-8"))
+    files = ds.from_zip(ds.to_zip(folder))
+    assert files == {file: (folder / file).read_text(encoding="utf-8") for file in ds.FILES}
+
+
+def test_zip_rejects_other_files():
+    with pytest.raises(ValueError):
+        ds.from_zip(b"not a zip")
