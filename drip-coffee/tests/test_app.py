@@ -330,4 +330,13 @@ def test_deployed_app_keeps_each_visitor_apart(monkeypatch, my_files):
     assert not at.exception and has_text(at, "만든 사람 기록 둘러보기")
     button(at, "space-tour").click().run()
     assert not at.exception and has_text(at, "둘러보는 중")
+    button(at, "tour-leave").click().run()  # 시작 화면에 이 기기의 이름이 남아 있어 다시 열 수 있다
+    assert has_text(at, "아침커피")
+    button(at, "start-0").click().run()
+    button(at, "home-who").click().run()
+    assert button(at, "space-forget")  # 지우기는 한 번 더 묻는다 (AppTest는 창 안의 버튼을 누르면 창이 닫혀서 상태로 넣는다)
+    at.session_state["confirm_forget"] = True
+    button(at, "home-who").click().run()
+    button(at, "space-forget-yes").click().run()
+    assert not at.exception and has_text(at, "어떻게 시작할까요?") and not has_text(at, "아침커피")
     assert all(path.read_bytes() == data for path, data in originals.items())

@@ -25,6 +25,7 @@ import streamlit as st
 
 from dripcoffee import LOCAL_DATA_DIR
 from dripcoffee import calibration as cal
+from dripcoffee import device_store as ds
 from dripcoffee import extraction_model as em
 from dripcoffee import grind_analysis as ga
 from dripcoffee import recommend as rec
@@ -281,7 +282,12 @@ STYLE = """
 .st-key-home-tour { gap: 8px; padding: 10px 8px 10px 14px; border-radius: 14px; background: #FBEFE3; }
 .dc-tour { font-size: 13px; line-height: 1.45; color: #874711; }
 .st-key-home-tour button p { font-size: 14px; font-weight: 700; color: #A85A17; white-space: nowrap; }
-.st-key-home-list [data-testid="stTextInput"], .st-key-space-list [data-testid="stTextInput"] { padding: 0 20px 10px; }
+.st-key-home-list [data-testid="stTextInput"], .st-key-space-list [data-testid="stTextInput"] { padding: 0 20px 4px; }
+.dc-name-note { padding: 0 20px 12px; font-size: 12px; color: #8B95A1; }
+.st-key-dc-device { display: none; }  /* 이 기기에 저장하는 보이지 않는 부품 (sync_device) */
+.st-key-space-forget button p { font-size: 13px; color: #F04452; }
+.st-key-space-forget-yes button { border-color: #F04452; }
+.st-key-space-forget-yes button p { font-weight: 700; color: #F04452; }
 /* 누를 수 있는 목록 한 줄 (list_row): 보이는 내용은 HTML, 그 위를 투명한 버튼이 통째로 덮는다 */
 [class*="st-key-row-"] { position: relative; gap: 0; }
 [class*="st-key-row-"] [data-testid="stElementContainer"]:has(button) { position: absolute; inset: 0; z-index: 1; }
@@ -2555,6 +2561,81 @@ def new_space(tour):
     return folder
 
 
+def space_rows(prefix, in_dialog):
+    """이 기기에 있는 이름마다 한 줄(잔 수와 마지막 날). 누르면 그 기록으로 연다."""
+    current = st.session_state.get("space")
+    spaces = st.session_state.get("spaces", {})
+    for i, name in enumerate(n for n in spaces if n != TOUR):
+        brews = cal.load_brews(Path(spaces[name]) / cal.BREWS_PATH.name)
+        sub = f"{len(brews)}잔 · {short_date(brews[-1].date)}" if brews else "아직 기록이 없어요"
+        list_row(f"{prefix}-{i}", row_markup(f'<span class="dc-avatar">{escape(name[:2])}</span>', name, sub,
+                                             action="지금" if name == current else ""),
+                 f"{name}의 기록 열기", open_space, (name, in_dialog))
+
+
+def ask_forget():
+    st.session_state["confirm_forget"] = True
+
+
+def forget_space(name):
+    """이 기기에서 그 이름의 기록을 지운다(되돌릴 수 없다). 지운 뒤에는 시작 화면으로 간다."""
+    shutil.rmtree(st.session_state["spaces"].pop(name), ignore_errors=True)
+    if st.session_state.get("last_name") == name:
+        st.session_state["last_name"] = None
+    st.session_state.update(space=None, confirm_forget=False, space_opened=True)
+    open_page("home")
+
+
+DEVICE_KEY = "drip-coffee"  # 이 기기(브라우저 저장소)에서 기록을 두는 자리
+# 브라우저 저장소에 기록 묶음을 쓰고(save), 저장된 값이 앱이 아는 값(known)과 다를 때만 앱에 알린다.
+# 알릴 때마다 앱이 다시 그려지므로 같은 값은 다시 알리지 않는다
+DEVICE_JS = """
+export default function({ data, setStateValue }) {
+    let stored = "";
+    try {
+        if (data.save !== null) {
+            if (data.save) localStorage.setItem(data.key, data.save);
+            else localStorage.removeItem(data.key);
+        }
+        stored = localStorage.getItem(data.key) || "";
+    } catch (e) {}
+    if (stored !== data.known) setStateValue("stored", stored);
+}
+"""
+
+
+@st.cache_resource
+def device_component():
+    return st.components.v2.component("dc_device_store", js=DEVICE_JS)
+
+
+def sync_device():
+    """배포한 앱: 이 기기에 저장한 기록을 접속 처음에 한 번 불러와 마지막 이름으로 열고, 그 뒤로는 기록이
+    바뀔 때마다 저장한다. 둘러보기는 저장하지 않는다. 화면을 다 그린 뒤에 부른다."""
+    known = st.session_state.get("device_raw")
+    save = None
+    if known is not None:
+        folders = {name: folder for name, folder in st.session_state.get("spaces", {}).items() if name != TOUR}
+        packed = ds.pack(folders, st.session_state.get("last_name")) if folders else ""
+        save = packed if packed != known else None
+    with st.container(key="dc-device"):
+        stored = device_component()(key="device-store", data={"key": DEVICE_KEY, "known": known, "save": save},
+                                    default={"stored": None}, on_stored_change=lambda: None).stored
+    if stored is None or stored == known:
+        return
+    st.session_state["device_raw"] = stored
+    if known is None:
+        profiles, last = ds.unpack(stored)
+        spaces = st.session_state.setdefault("spaces", {})
+        for name, files in profiles.items():
+            folder = Path(tempfile.mkdtemp(prefix="drip-coffee-"))
+            ds.write_files(files, folder)
+            spaces.setdefault(name, str(folder))
+        if last and not st.session_state.get("space"):
+            open_space(last)
+            st.rerun()
+
+
 def use_space(name):
     """이번 실행에서 쓸 기록 파일을 그 이름의 기록 폴더로 바꾼다."""
     global BREWS_PATH, BEANS_PATH, EQUIPMENT_PATH, PROFILE_DIR
@@ -2570,6 +2651,8 @@ def open_space(name, in_dialog=False):
     if name not in spaces:
         spaces[name] = str(new_space(name == TOUR))
     st.session_state.update(space=name, asking_name=False, space_opened=in_dialog)
+    if name != TOUR:
+        st.session_state["last_name"] = name  # 다음 접속에 이 이름으로 바로 연다
     open_page("home")
 
 
@@ -2595,10 +2678,11 @@ def name_rows(prefix):
     """'새 이름으로 시작하기' 줄과, 누르면 나오는 이름 칸."""
     title = "새 이름으로 시작하기" if prefix == "space" else "내 이름으로 시작하기"
     list_row(f"{prefix}-mine", row_markup('<span class="dc-icon" aria-hidden="true">person_add</span>', title,
-                                          "내 기록을 새로 쌓아요"), title, ask_name)
+                                          "이 기기에 내 기록을 쌓아요"), title, ask_name)
     if st.session_state.get("asking_name"):
         st.text_input("이름이나 별명", max_chars=12, placeholder="이름이나 별명 (예: 아침커피)", key=f"{prefix}-name",
                       label_visibility="collapsed")
+        html('<div class="dc-name-note">다음에 이 기기로 오면 이 이름의 기록으로 바로 열려요.</div>')
 
 
 def tour_row(prefix):
@@ -2617,9 +2701,10 @@ def start_page():
         toast("이름이나 별명을 적어 주세요.")
     section("어떻게 시작할까요?")
     with st.container(key="home-list"):
+        space_rows("start", False)
         name_rows("start")
         tour_row("start")
-    html('<div class="dc-caption">기록은 서버에 남지 않아요.</div>')
+    html('<div class="dc-caption">기록은 서버에 남지 않고 이 브라우저에만 저장돼요.</div>')
     with st.container(key="home-cta"):
         if st.session_state.get("asking_name"):
             st.button("이 이름으로 시작하기", type="primary", width="stretch", key="start-go", on_click=start_mine,
@@ -2630,20 +2715,24 @@ def start_page():
 
 @st.dialog("누구의 기록으로 볼까요?")
 def space_dialog():
-    """이번 접속에서 연 이름 중에서 고르거나, 새 이름으로 시작하거나, 만든 사람 기록을 둘러본다."""
+    """이 기기의 이름 중에서 고르거나, 새 이름으로 시작하거나, 만든 사람 기록을 둘러보거나, 지금 이름의 기록을 지운다."""
     current = st.session_state.get("space")
     if st.session_state.pop("name_error", False):
         toast("이름이나 별명을 적어 주세요.")
+    html('<div class="dc-caption">기록은 이 브라우저에만 저장돼요.</div>')
     with st.container(key="space-list"):
-        for i, name in enumerate(n for n in st.session_state.get("spaces", {}) if n != TOUR):
-            list_row(f"space-{i}", row_markup(f'<span class="dc-avatar">{escape(name[:2])}</span>', name,
-                                              action="지금" if name == current else ""),
-                     f"{name}의 기록 열기", open_space, (name, True))
+        space_rows("space", True)
         name_rows("space")
         tour_row("space")
     if st.session_state.get("asking_name"):
         st.button("이 이름으로 시작하기", type="primary", width="stretch", key="space-go", on_click=start_mine,
                   args=("space-name", True))
+    if st.session_state.get("confirm_forget"):
+        html(f'<div class="dc-caption">이 기기에서 \'{escape(current)}\'의 기록을 지울까요? 되돌릴 수 없어요.</div>')
+        st.button("지우기", width="stretch", key="space-forget-yes", on_click=forget_space, args=(current,))
+    else:
+        st.button(f"이 기기에서 '{current}' 기록 지우기", type="tertiary", width="stretch", key="space-forget",
+                  on_click=ask_forget)
     if st.session_state.pop("space_opened", False):
         st.rerun()
 
@@ -2660,6 +2749,8 @@ def space_header():
     with st.container(key="home-top", horizontal=True, horizontal_alignment="right"):
         if st.button(f"{space}의 기록 :material/expand_more:", key="home-who"):
             space_dialog()
+        else:  # 창을 닫았다가 다시 열면 지우기를 처음부터 묻는다
+            st.session_state["confirm_forget"] = False
 
 
 HOME_HERO = ('<div class="dc-home"><div class="dc-icon dc-home-icon" aria-hidden="true">coffee</div>'
@@ -2887,3 +2978,5 @@ if SANDBOX:  # 배포한 앱은 누구의 기록인지 고르기 전에는 시�
     elif PAGE != "tutorial":
         PAGE = "start"
 PAGES[PAGE]()
+if SANDBOX:
+    sync_device()  # 화면을 다 그린 뒤에 두어 이번 실행에서 바뀐 기록까지 저장한다
