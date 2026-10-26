@@ -26,7 +26,6 @@ import streamlit as st
 
 from dripcoffee import LOCAL_DATA_DIR
 from dripcoffee import calibration as cal
-from dripcoffee import device_store as ds
 from dripcoffee import extraction_model as em
 from dripcoffee import grind_analysis as ga
 from dripcoffee import recommend as rec
@@ -2616,7 +2615,7 @@ def sync_device():
     save = None
     if known is not None:
         folders = {name: folder for name, folder in st.session_state.get("spaces", {}).items() if name != TOUR}
-        packed = ds.pack(folders, st.session_state.get("last_name")) if folders else ""
+        packed = cal.pack_records(folders, st.session_state.get("last_name")) if folders else ""
         save = packed if packed != known else None
     with st.container(key="dc-device"):
         stored = DEVICE_STORE(key="device-store", data={"key": DEVICE_KEY, "known": known, "save": save},
@@ -2625,11 +2624,11 @@ def sync_device():
         return
     st.session_state["device_raw"] = stored
     if known is None:
-        profiles, last = ds.unpack(stored)
+        profiles, last = cal.unpack_records(stored)
         spaces = st.session_state.setdefault("spaces", {})
         for name, files in profiles.items():
             folder = Path(tempfile.mkdtemp(prefix="drip-coffee-"))
-            ds.write_files(files, folder)
+            cal.write_records(files, folder)
             spaces.setdefault(name, str(folder))
         if last and not st.session_state.get("space"):
             open_space(last)
@@ -2684,7 +2683,7 @@ def import_space(key, in_dialog=False):
         name = "불러온 기록"
     folder = Path(tempfile.mkdtemp(prefix="drip-coffee-"))
     try:
-        ds.write_files(ds.from_zip(upload.getvalue()), folder)
+        cal.write_records(cal.records_from_zip(upload.getvalue()), folder)
         cal.load_brews(folder / cal.BREWS_PATH.name), cal.load_beans(folder / cal.BEANS_PATH.name)
     except (ValueError, KeyError):
         shutil.rmtree(folder, ignore_errors=True)
@@ -2783,7 +2782,7 @@ def space_dialog():
     elif st.session_state.get("importing"):
         st.button("불러와서 시작하기", type="primary", width="stretch", key="space-import-go", on_click=import_space,
                   args=("space-file", True))
-    st.download_button("기록 파일로 받기", ds.to_zip(st.session_state["spaces"][current]),
+    st.download_button("기록 파일로 받기", cal.records_zip(st.session_state["spaces"][current]),
                        file_name=f"drip-coffee-{current}-{date.today():%Y%m%d}.zip", mime="application/zip",
                        icon=":material/download:", on_click="ignore", width="stretch", key="space-download")
     if st.session_state.get("confirm_forget"):

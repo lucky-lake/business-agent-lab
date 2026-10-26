@@ -11,7 +11,6 @@ from streamlit.testing.v1 import AppTest
 
 from dripcoffee import DATA_DIR, PROJECT_ROOT
 from dripcoffee import calibration as cal
-from dripcoffee import device_store as ds
 from tests.synthetic import render_sheet_window, simulate_photo
 
 APP = str(PROJECT_ROOT / "app.py")
@@ -342,7 +341,7 @@ def test_deployed_app_keeps_each_visitor_apart(monkeypatch, my_files):
     assert not at.exception and has_text(at, "어떻게 시작할까요?") and not has_text(at, "아침커피")
     # 다른 기기에서 받은 기록 파일을 불러오면 파일 이름에 적힌 이름으로 연다
     button(at, "start-import").click().run()
-    at.file_uploader(key="start-file").upload("drip-coffee-주말-20261025.zip", ds.to_zip(DATA_DIR), "application/zip").run()
+    at.file_uploader(key="start-file").upload("drip-coffee-주말-20261025.zip", cal.records_zip(DATA_DIR), "application/zip").run()
     button(at, "start-import-go").click().run()
     assert not at.exception and button(at, "home-who").label.startswith("주말의 기록")
     assert has_text(at, f"{len(cal.load_brews())}잔")

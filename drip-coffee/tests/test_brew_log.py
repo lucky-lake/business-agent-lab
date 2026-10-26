@@ -108,3 +108,43 @@ def test_every_logged_bean_is_in_the_bean_list():
     assert {"B01", "B02", "B03", "B05", "B06", "B07", "B08", "S1"} <= set(beans)
     assert {b.bean_id for b in cal.load_brews()} <= set(beans)
     assert {row["role"] for row in beans.values()} <= {"학습", "검증", "시험", "여유", "일반"}  # 앱에서 더한 원두는 '일반'
+
+
+def record_folder(tmp_path, name, brews):
+    folder = tmp_path / name
+    folder.mkdir()
+    (folder / "brews.csv").write_text(brews, encoding="utf-8")
+    for file in ("beans.csv", "equipment.csv"):
+        (folder / file).write_text((DATA_DIR / file).read_text(encoding="utf-8"), encoding="utf-8")
+    return folder
+
+
+def test_records_pack_and_unpack_give_back_the_same_files(tmp_path):
+    # 배포한 앱: 이름마다 기록 파일을 JSON 하나로 묶어 이 기기에 두고, 다음 접속에 다시 푼다
+    folders = {"아침커피": record_folder(tmp_path, "a", "date\n2026-10-24\n"), "주말": record_folder(tmp_path, "b", "date\n")}
+    raw = cal.pack_records(folders, "아침커피")
+    assert raw == cal.pack_records(folders, "아침커피")  # 같은 기록이면 같은 문자열이라, 바뀔 때만 저장할 수 있다
+    profiles, last = cal.unpack_records(raw)
+    assert last == "아침커피" and set(profiles) == {"아침커피", "주말"}
+    restored = tmp_path / "restored"
+    restored.mkdir()
+    cal.write_records(profiles["아침커피"], restored)
+    assert cal.pack_records({"아침커피": restored, "주말": folders["주말"]}, "아침커피") == raw
+
+
+def test_unpack_records_ignores_empty_or_broken_storage():
+    assert cal.unpack_records("") == ({}, None)
+    assert cal.unpack_records("{not json") == ({}, None)
+    assert cal.unpack_records('{"profiles": {"a": {"brews.csv": "x"}}}') == ({}, None)  # 파일이 모자라면 버린다
+    assert cal.unpack_records('{"last": "없는 이름", "profiles": {}}') == ({}, None)
+
+
+def test_records_zip_carries_one_name_to_another_device(tmp_path):
+    folder = record_folder(tmp_path, "a", (DATA_DIR / "brews.csv").read_text(encoding="utf-8"))
+    files = cal.records_from_zip(cal.records_zip(folder))
+    assert files == {file: (folder / file).read_text(encoding="utf-8") for file in cal.RECORD_FILES}
+
+
+def test_records_from_zip_rejects_other_files():
+    with pytest.raises(ValueError):
+        cal.records_from_zip(b"not a zip")

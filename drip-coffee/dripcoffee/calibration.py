@@ -2,10 +2,14 @@
 
 앱의 기록 탭은 append_brew로 새 잔을 저장하고, 보정(MODEL.md 5절)과 내 선호 영역(9.1절)은
 load_brews로 읽은 기록을 쓴다. 측정 방법과 맛 기준은 docs/BREW_PROTOCOL.md를 따른다.
+배포한 앱은 이름마다 기록 파일을 묶어 이 기기에 두거나(pack_records) zip으로 옮긴다(records_zip).
 """
 import csv
+import io
+import json
 import math
 import re
+import zipfile
 from pathlib import Path
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
@@ -491,6 +495,53 @@ def append_brew(record, path=BREWS_PATH):
         if not ends_with_newline:
             f.write("\n")
         csv.writer(f, lineterminator="\n").writerow([row[name] for name in header])
+
+
+# 배포한 앱: 이름마다 기록 파일을 이 기기(브라우저 저장소)에 두거나, zip 하나로 다른 기기에 옮긴다
+RECORD_FILES = (BREWS_PATH.name, BEANS_PATH.name, EQUIPMENT_PATH.name)
+
+
+def pack_records(folders, last):
+    """{이름: 기록 폴더}와 마지막으로 연 이름을 JSON 문자열 하나로 묶는다. 같은 기록이면 늘 같은 문자열이다."""
+    profiles = {name: {file: (Path(folder) / file).read_text(encoding="utf-8") for file in RECORD_FILES}
+                for name, folder in folders.items()}
+    return json.dumps({"last": last, "profiles": profiles}, ensure_ascii=False, sort_keys=True)
+
+
+def unpack_records(raw):
+    """pack_records의 반대: ({이름: {파일 이름: 내용}}, 마지막 이름). 비었거나 읽을 수 없으면 ({}, None)."""
+    try:
+        data = json.loads(raw) if raw else {}
+        profiles = {str(name): {file: str(files[file]) for file in RECORD_FILES}
+                    for name, files in data["profiles"].items()}
+        last = data.get("last")
+    except (ValueError, TypeError, KeyError, AttributeError):
+        return {}, None
+    return profiles, last if last in profiles else None
+
+
+def write_records(files, folder):
+    """{파일 이름: 내용}을 기록 폴더에 쓴다."""
+    for file, text in files.items():
+        (Path(folder) / file).write_text(text, encoding="utf-8")
+
+
+def records_zip(folder):
+    """기록 폴더의 기록 파일을 zip 하나(바이트)로 묶는다. 다른 기기에서 불러오거나 표 프로그램으로 열 수 있다."""
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for file in RECORD_FILES:
+            archive.writestr(file, (Path(folder) / file).read_text(encoding="utf-8"))
+    return buffer.getvalue()
+
+
+def records_from_zip(data):
+    """records_zip의 반대: {파일 이름: 내용}. zip이 아니거나 기록 파일이 모자라면 ValueError."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            return {file: archive.read(file).decode("utf-8") for file in RECORD_FILES}
+    except (zipfile.BadZipFile, KeyError, UnicodeDecodeError) as error:
+        raise ValueError("Drip Coffee에서 받은 기록 파일(zip)이 아니에요.") from error
 
 
 def _check(row, existing):
