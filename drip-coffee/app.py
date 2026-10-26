@@ -284,6 +284,7 @@ STYLE = """
 .st-key-home-tour button p { font-size: 14px; font-weight: 700; color: #A85A17; white-space: nowrap; }
 .st-key-home-list [data-testid="stTextInput"], .st-key-space-list [data-testid="stTextInput"],
 .st-key-home-list [data-testid="stFileUploader"], .st-key-space-list [data-testid="stFileUploader"] { padding: 0 20px 4px; }
+.st-key-home-list [data-testid="InputInstructions"], .st-key-space-list [data-testid="InputInstructions"] { right: 29px; }  /* 글자 수 표시를 여백(20px)만큼 안으로 */
 .dc-name-note { padding: 0 20px 12px; font-size: 12px; color: #8B95A1; }
 .st-key-dc-device { display: none; }  /* 이 기기에 저장하는 보이지 않는 부품 (sync_device) */
 .st-key-space-forget button p { font-size: 13px; color: #F04452; }
