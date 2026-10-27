@@ -515,15 +515,16 @@ def notice(text, error=False):
 TOASTS = None  # 위에서 내려오는 알림 자리. 페이지를 그리기 전에 만든다 (화면 흐름 밖에 고정)
 
 
-def toast(text, error=False, icon=None):
+def toast(text, error=False, icon=None, here=False):
     """화면 위에서 내려왔다가 3초 뒤 사라지는 알림. 잘못 적은 값, 읽지 못한 사진, 저장 실패처럼 잠깐 알릴 것에 쓴다.
     노란 '!'는 고쳐 달라는 뜻, 빨간 '!'는 실패. icon(Material Symbols 이름)을 주면 강조색 아이콘의 안내 알림이 된다.
-    화면에 계속 남아야 하는 상태는 notice로 보여 준다."""
+    화면에 계속 남아야 하는 상태는 notice로 보여 준다. here면 그 자리에 그린다(창만 다시 그릴 때는 창 밖의
+    알림 자리에 쓸 수 없다)."""
     mark = (f'<span class="dc-toast-icon info" aria-hidden="true">{icon}</span>' if icon
             else '<span class="dc-toast-icon" aria-hidden="true">!</span>')
     markup = (f'<div class="dc-toast{" error" if error else ""}" role="{"status" if icon else "alert"}" '
               f'aria-live="{"polite" if icon else "assertive"}">{mark}{escape(text)}</div>')
-    if TOASTS is None:  # 페이지 밖(테스트 등)에서 부르면 그 자리에 그린다
+    if TOASTS is None or here:  # 페이지 밖(테스트 등)에서 부르면 그 자리에 그린다
         html(markup)
         return
     with TOASTS:
@@ -2707,12 +2708,12 @@ def import_rows(prefix):
         html('<div class="dc-name-note">파일에 적힌 이름으로 열어요. 이 기기에 같은 이름이 있으면 파일의 기록으로 바꿔요.</div>')
 
 
-def start_alerts():
-    """시작 화면과 바꾸기 창에서 고쳐 달라는 알림(이름이 비었거나 파일을 읽지 못함)."""
+def start_alerts(in_dialog=False):
+    """시작 화면과 바꾸기 창에서 고쳐 달라는 알림(이름이 비었거나 파일을 읽지 못함). 창에서는 창 안에 그린다."""
     if st.session_state.pop("name_error", False):
-        toast("이름이나 별명을 적어 주세요.")
+        toast("이름이나 별명을 적어 주세요.", here=in_dialog)
     if error := st.session_state.pop("import_error", None):
-        toast(error)
+        toast(error, here=in_dialog)
 
 
 def start_mine(key, in_dialog=False):
@@ -2772,7 +2773,7 @@ def space_dialog():
     if st.session_state.pop("space_opened", False):  # 창 안에서 다른 기록을 열었거나 지웠으면 창을 닫는다
         st.rerun()
     current = st.session_state.get("space")
-    start_alerts()
+    start_alerts(True)
     html('<div class="dc-caption">기록은 이 브라우저에만 저장돼요. 다른 기기로 옮길 땐 파일로 받아 가세요.</div>')
     with st.container(key="space-list"):
         space_rows("space", True)
