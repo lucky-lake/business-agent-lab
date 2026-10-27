@@ -2769,6 +2769,8 @@ def start_page():
 @st.dialog("누구의 기록으로 볼까요?")
 def space_dialog():
     """이 기기의 이름 중에서 고르거나, 새 이름으로 시작하거나, 만든 사람 기록을 둘러보거나, 지금 이름의 기록을 지운다."""
+    if st.session_state.pop("space_opened", False):  # 창 안에서 다른 기록을 열었거나 지웠으면 창을 닫는다
+        st.rerun()
     current = st.session_state.get("space")
     start_alerts()
     html('<div class="dc-caption">기록은 이 브라우저에만 저장돼요. 다른 기기로 옮길 땐 파일로 받아 가세요.</div>')
@@ -2792,8 +2794,6 @@ def space_dialog():
     else:
         st.button(f"이 기기에서 '{current}' 기록 지우기", type="tertiary", width="stretch", key="space-forget",
                   on_click=ask_forget)
-    if st.session_state.pop("space_opened", False):
-        st.rerun()
 
 
 def space_header():
