@@ -83,7 +83,7 @@ def test_grind_stays_coarser_than_where_the_bean_clogged(brews, beans):
 
 
 def test_bean_without_records_gets_a_recipe_for_its_own_dose(brews, beans):
-    r = rec.recommend_recipe(TARGET, beans["S1"], brews, dose_g=17.8)  # 샘플은 18 g뿐이라 17.8 g으로 내린다
+    r = rec.recommend_recipe(TARGET, beans["B04"], brews, dose_g=17.8)  # 기록이 없는 원두를 평소와 다른 양으로 내린다
     assert r.recipe.dose_g == 17.8 and r.recipe.pours[0].grams == 36
     assert [p.grams for p in r.recipe.pours[1:]] == [round(m * 17.8) for m in r.pattern]
     assert "기록이 없어" in r.usual.source
