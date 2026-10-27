@@ -1042,7 +1042,8 @@ def cup_list(brews):
         recent_brews_table(brews, limit=len(brews))
 
 
-BEAN_COLORS = (BRAND, "#5B7FA6", "#6E8F4E", "#B5838D", "#8A6FB0", "#C9A227")  # 맛 변화 그림의 원두별 색
+BEAN_COLORS = (BRAND, "#5B7FA6", "#6E8F4E", "#B5838D", "#8A6FB0", "#C9A227",
+               "#4F9A94", "#D4785C", "#3D5A80", "#9C7A54")  # 맛 변화 그림의 원두별 색. 원두가 더 많으면 처음부터 다시 쓴다
 
 
 def opened_from_chart(event, name):
@@ -1062,6 +1063,7 @@ def taste_trend(brews):
         notice("아직 맛을 매긴 잔이 없어요.")
         return
     beans = list(dict.fromkeys(b.bean_id for b in cups))
+    colors = [BEAN_COLORS[i % len(BEAN_COLORS)] for i in range(len(beans))]
     data = pd.DataFrame({"n": i + 1, "brew_id": b.brew_id, "day": short_date(b.date), "bean": b.bean_id,
                          "color": "막힘·연습" if b.flag else b.bean_id, "score": round(b.quality_score, 2)}
                         for i, b in enumerate(cups))
@@ -1076,13 +1078,13 @@ def taste_trend(brews):
     dots = alt.Chart(data).mark_circle(size=170, stroke="#FFFFFF", strokeWidth=2, opacity=1).encode(
         x=x, y=y,
         color=alt.Color("color:N", legend=None, scale=alt.Scale(domain=beans + ["막힘·연습"],
-                                                                range=list(BEAN_COLORS[:len(beans)]) + [GRAY_LIGHT])),
+                                                                range=colors + [GRAY_LIGHT])),
         tooltip=[alt.Tooltip("day:N", title="날짜"), alt.Tooltip("bean:N", title="원두"), alt.Tooltip("score:Q", title="만족도")],
     ).add_params(pick)
     chart = (band + line + dots).properties(height=260).configure_view(stroke=None).configure(font=FONT)
     opened_from_chart(st.altair_chart(chart, width="stretch", on_select="rerun", key="trend-chart"), "trend")
-    html('<div class="dc-legend">' + "".join(f'<span><i class="dc-dot" style="background:{BEAN_COLORS[i]}"></i>{escape(bean)}</span>'
-                                             for i, bean in enumerate(beans))
+    html('<div class="dc-legend">' + "".join(f'<span><i class="dc-dot" style="background:{color}"></i>{escape(bean)}</span>'
+                                             for bean, color in zip(beans, colors))
          + f'<span><i class="dc-dot" style="background:{GRAY_LIGHT}"></i>막힘·연습</span></div>')
     normal = [b.quality_score for b in cups if not b.flag]
     if len(normal) >= 2:
