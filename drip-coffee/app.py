@@ -287,6 +287,7 @@ STYLE = """
 .st-key-home-list [data-testid="InputInstructions"], .st-key-space-list [data-testid="InputInstructions"] { right: 29px; }  /* 글자 수 표시를 여백(20px)만큼 안으로 */
 .dc-name-note { padding: 0 20px 12px; font-size: 12px; color: #8B95A1; }
 .st-key-dc-device { display: none; }  /* 이 기기에 저장하는 보이지 않는 부품 (sync_device) */
+.st-key-space-rename button p { font-size: 13px; color: #4E5968; }
 .st-key-space-forget button p { font-size: 13px; color: #F04452; }
 .st-key-space-forget-yes button { border-color: #F04452; }
 .st-key-space-forget-yes button p { font-weight: 700; color: #F04452; }
@@ -2576,6 +2577,25 @@ def space_rows(prefix, in_dialog):
                  f"{name}의 기록 열기", open_space, (name, in_dialog))
 
 
+def ask_rename():
+    st.session_state.update(renaming=True, asking_name=False, importing=False)
+
+
+def rename_space(old, key):
+    """지금 이름을 적은 이름으로 바꾼다. 기록 폴더는 그대로 두고 이름표만 바꾼다. 비었거나 이 기기의 다른 이름과
+    겹치면 바꾸지 않고 다음 화면에서 알린다."""
+    new = (st.session_state.get(key) or "").strip()
+    spaces = st.session_state["spaces"]
+    if not new:
+        st.session_state["name_error"] = "이름이나 별명을 적어 주세요."
+        return
+    if new != old and (new == TOUR or new in spaces):
+        st.session_state["name_error"] = "이 기기에 이미 있는 이름이에요."
+        return
+    st.session_state["spaces"] = {new if name == old else name: folder for name, folder in spaces.items()}
+    st.session_state.update(space=new, last_name=new, renaming=False, space_opened=True)
+
+
 def ask_forget():
     st.session_state["confirm_forget"] = True
 
@@ -2663,11 +2683,11 @@ def leave_space():
 
 
 def ask_name():
-    st.session_state.update(asking_name=True, importing=False)
+    st.session_state.update(asking_name=True, importing=False, renaming=False)
 
 
 def ask_import():
-    st.session_state.update(importing=True, asking_name=False)
+    st.session_state.update(importing=True, asking_name=False, renaming=False)
 
 
 EXPORT_NAME = re.compile(r"drip-coffee-(.+?)-\d{8}")  # 받은 기록 파일 이름: drip-coffee-이름-날짜.zip
@@ -2709,9 +2729,9 @@ def import_rows(prefix):
 
 
 def start_alerts(in_dialog=False):
-    """시작 화면과 바꾸기 창에서 고쳐 달라는 알림(이름이 비었거나 파일을 읽지 못함). 창에서는 창 안에 그린다."""
-    if st.session_state.pop("name_error", False):
-        toast("이름이나 별명을 적어 주세요.", here=in_dialog)
+    """시작 화면과 바꾸기 창에서 고쳐 달라는 알림(이름이 비었거나 겹침, 파일을 읽지 못함). 창에서는 창 안에 그린다."""
+    if error := st.session_state.pop("name_error", None):
+        toast(error, here=in_dialog)
     if error := st.session_state.pop("import_error", None):
         toast(error, here=in_dialog)
 
@@ -2720,7 +2740,7 @@ def start_mine(key, in_dialog=False):
     """적은 이름으로 내 기록을 연다. 이름이 비었으면 다음 화면에서 알린다."""
     name = (st.session_state.get(key) or "").strip()
     if not name or name == TOUR:
-        st.session_state["name_error"] = True
+        st.session_state["name_error"] = "이름이나 별명을 적어 주세요."
         return
     open_space(name, in_dialog)
 
@@ -2769,7 +2789,7 @@ def start_page():
 
 @st.dialog("누구의 기록으로 볼까요?")
 def space_dialog():
-    """이 기기의 이름 중에서 고르거나, 새 이름으로 시작하거나, 만든 사람 기록을 둘러보거나, 지금 이름의 기록을 지운다."""
+    """이 기기의 이름 중에서 고르거나, 새 이름으로 시작하거나, 만든 사람 기록을 둘러보거나, 지금 이름을 바꾸거나 지운다."""
     if st.session_state.pop("space_opened", False):  # 창 안에서 다른 기록을 열었거나 지웠으면 창을 닫는다
         st.rerun()
     current = st.session_state.get("space")
@@ -2789,6 +2809,12 @@ def space_dialog():
     st.download_button("기록 파일로 받기", cal.records_zip(st.session_state["spaces"][current]),
                        file_name=f"drip-coffee-{current}-{date.today():%Y%m%d}.zip", mime="application/zip",
                        icon=":material/download:", on_click="ignore", width="stretch", key="space-download")
+    if st.session_state.get("renaming"):
+        st.text_input("새 이름", value=current, max_chars=12, key="space-rename-name", label_visibility="collapsed")
+        st.button("이 이름으로 바꾸기", type="primary", width="stretch", key="space-rename-go", on_click=rename_space,
+                  args=(current, "space-rename-name"))
+    else:
+        st.button(f"'{current}' 이름 바꾸기", type="tertiary", width="stretch", key="space-rename", on_click=ask_rename)
     if st.session_state.get("confirm_forget"):
         html(f'<div class="dc-caption">이 기기에서 \'{escape(current)}\'의 기록을 지울까요? 되돌릴 수 없어요.</div>')
         st.button("지우기", width="stretch", key="space-forget-yes", on_click=forget_space, args=(current,))
@@ -2809,8 +2835,8 @@ def space_header():
     with st.container(key="home-top", horizontal=True, horizontal_alignment="right"):
         if st.button(f"{space}의 기록 :material/expand_more:", key="home-who"):
             space_dialog()
-        else:  # 창을 닫았다가 다시 열면 지우기를 처음부터 묻는다
-            st.session_state["confirm_forget"] = False
+        else:  # 창을 닫았다가 다시 열면 바꾸기와 지우기를 처음부터 묻는다
+            st.session_state.update(confirm_forget=False, renaming=False)
 
 
 HOME_HERO = ('<div class="dc-home"><div class="dc-icon dc-home-icon" aria-hidden="true">coffee</div>'

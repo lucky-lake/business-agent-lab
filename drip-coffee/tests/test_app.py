@@ -350,6 +350,38 @@ def test_deployed_app_keeps_each_visitor_apart(monkeypatch, my_files):
     assert all(path.read_bytes() == data for path, data in originals.items())
 
 
+def test_deployed_app_renames_the_current_name(monkeypatch, my_files):
+    # 바꾸기 창에서 지금 이름을 바꾼다. 비었거나 이 기기의 다른 이름과 겹치면 그대로 둔다
+    monkeypatch.setenv("DRIP_COFFEE_SANDBOX", "1")
+    at = start(monkeypatch, *my_files)
+    button(at, "start-mine").click().run()
+    at.text_input(key="start-name").set_value("아침커피")
+    button(at, "start-go").click().run()
+    at.session_state["asking_name"] = True  # AppTest는 창 안의 버튼을 누르면 창이 닫혀서 상태로 넣는다
+    button(at, "home-who").click().run()
+    at.text_input(key="space-name").set_value("점심커피")
+    button(at, "space-go").click().run()
+    at.session_state["space_opened"] = False  # 브라우저에서는 창만 다시 그려 이 표시를 지우지만 AppTest는 앱 전체를 다시 그린다
+    folder = at.session_state["spaces"]["점심커피"]
+
+    def rename(to):
+        at.session_state["renaming"] = True
+        button(at, "home-who").click().run()
+        assert at.text_input(key="space-rename-name").value == at.session_state["space"]  # 지금 이름이 미리 들어 있다
+        at.text_input(key="space-rename-name").set_value(to)
+        button(at, "space-rename-go").click().run()
+        button(at, "home-who").click().run()  # 알림은 창에 뜨므로 창을 다시 연다
+        assert not at.exception
+
+    rename("아침커피")
+    assert has_text(at, "이미 있는 이름") and button(at, "home-who").label.startswith("점심커피의 기록")
+    rename(" ")
+    assert has_text(at, "적어 주세요") and button(at, "home-who").label.startswith("점심커피의 기록")
+    rename("저녁커피")
+    assert button(at, "home-who").label.startswith("저녁커피의 기록") and at.session_state["last_name"] == "저녁커피"
+    assert list(at.session_state["spaces"]) == ["아침커피", "저녁커피"] and at.session_state["spaces"]["저녁커피"] == folder
+
+
 def test_deployed_app_rejects_a_file_that_is_not_a_record(monkeypatch, my_files):
     monkeypatch.setenv("DRIP_COFFEE_SANDBOX", "1")
     at = start(monkeypatch, *my_files)
