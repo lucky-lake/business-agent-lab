@@ -26,7 +26,7 @@ Business Agent Design (Fall 2026) Project 1 개인 과제. 마감 2026-11-01 23:
 - 계산 모듈은 화면과 분리된 순수 함수로 짜고 pytest로 검증한다. 핵심 로직은 5개 파일(분쇄 분석, 추출 모델, 보정, 추천, 앱 화면)에만 둔다.
 - 저장소 경로에 한글이 있어 `cv2.imread`/`cv2.imwrite`가 실패할 수 있다. 이미지 입출력은 바이트 기반으로 한다(`np.fromfile` + `cv2.imdecode`, `cv2.imencode` + `tofile`).
 - 앱이 쓰는 작업 데이터는 `data/local/`(커밋 안 함)에 둔다.
-- 실행(이 폴더에서): `python -m venv .venv` → `.venv\Scripts\python -m pip install -r requirements.txt` → `.venv\Scripts\streamlit run app.py`. 테스트는 `.venv\Scripts\python -m pytest`.
+- 실행은 WSL Ubuntu에서 한다(이 폴더에서, 가상환경은 저장소 루트의 `.venv`): `python3 -m venv ../.venv` → `source ../.venv/bin/activate` → `pip install -r requirements.txt` → `streamlit run app.py`, 브라우저에서 `localhost:8501`. 테스트는 `python -m pytest`.
 
 ## 작업 방식
 
